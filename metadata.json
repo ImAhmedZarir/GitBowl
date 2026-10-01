@@ -1,0 +1,6 @@
+{
+  "name": "GitBowl",
+  "description": "GitBowl is a lightweight code hosting platform with repositories, commits, forks, stars and a built-in editor.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}

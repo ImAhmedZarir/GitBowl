@@ -1,11 +1,27 @@
-<div align="center">
+# GitBowl: Your Cloud Coding Hub
 
-<img width="1200" height="475" alt="GHBanner" src="https://github.com/user-attachments/assets/0aa67016-6eaf-458a-adb2-6e31a0763ed6" />
+build a github aulternative git provider named "GitBowl"
+where user can upload their files, can commit, can share, can clone, gets a vscode code editor, has zip upload to unzip project, has easy file and folder move/copy within repository, cloning repo, forking, stars
 
-  <h1>Built with AI Studio</h2>
+This project was built with [Lovable](https://lovable.dev).
 
-  <p>The fastest path from prompt to production with Gemini.</p>
+**Live app**: https://gitbowl.lovable.app
 
-  <a href="https://aistudio.google.com/apps">Start building</a>
+## Build with Lovable
 
-</div>
+Continue developing this project in the [Lovable editor](https://lovable.dev/projects/769f1b21-a5d4-401c-91c1-5a3010762705).
+
+- **Ship faster**: describe what you want to build and Lovable handles the code.
+- **Stay in sync**: every change made in Lovable is committed straight to this repository.
+- **Full ownership**: this code is yours. Push to `main` on GitHub and your changes sync back into Lovable, ready for your next prompt.
+
+## Development
+
+Prefer working locally? You need Node.js and npm — [install with nvm](https://github.com/nvm-sh/nvm#installing-and-updating).
+
+```sh
+git clone <this-repository-url>
+cd <repository-name>
+npm i
+npm run dev
+```
