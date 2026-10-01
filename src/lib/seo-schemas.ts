@@ -1,6 +1,6 @@
 /**
  * High-performance SEO & Schema.org JSON-LD Structured Data for GitBowl
- * Domain: http://gitbowl.zone.id/
+ * Domain: https://gitbowl.zone.id/
  * Contact: mail.gitbowl@gmail.com
  */
 
@@ -127,12 +127,12 @@ export const GITBOWL_KEYWORDS = [
 export const SCHEMA_ORGANIZATION = {
   "@context": "https://schema.org",
   "@type": "Organization",
-  "@id": "http://gitbowl.zone.id/#organization",
+  "@id": "https://gitbowl.zone.id/#organization",
   name: "GitBowl",
-  url: "http://gitbowl.zone.id/",
+  url: "https://gitbowl.zone.id/",
   logo: {
     "@type": "ImageObject",
-    url: "http://gitbowl.zone.id/gitbowl-app-icon-512.png",
+    url: "https://gitbowl.zone.id/gitbowl-app-icon-512.png",
     width: 512,
     height: 512,
   },
@@ -155,23 +155,23 @@ export const SCHEMA_ORGANIZATION = {
 export const SCHEMA_WEBAPPLICATION = {
   "@context": "https://schema.org",
   "@type": "WebApplication",
-  "@id": "http://gitbowl.zone.id/#webapp",
+  "@id": "https://gitbowl.zone.id/#webapp",
   name: "GitBowl",
   alternateName: ["GitBowl Cloud", "GitBowl Version Control", "Git Bowl"],
-  url: "http://gitbowl.zone.id/",
+  url: "https://gitbowl.zone.id/",
   applicationCategory: "DeveloperApplication",
   operatingSystem: "All, Linux, macOS, Windows, Android, iOS",
   softwareVersion: "2.4.0",
   description:
     "High-performance Git repository hosting platform. Host, share, edit, and collaborate on code with Smart-HTTP protocol, private repos, in-browser editor, and 1-click GitHub migration.",
   browserRequirements: "Requires modern web browser supporting JavaScript and HTML5",
-  screenshot: "http://gitbowl.zone.id/og-image.png",
-  image: "http://gitbowl.zone.id/og-image.png",
+  screenshot: "https://gitbowl.zone.id/og-image.png",
+  image: "https://gitbowl.zone.id/og-image.png",
   author: {
     "@type": "Organization",
     name: "GitBowl",
     email: "mail.gitbowl@gmail.com",
-    url: "http://gitbowl.zone.id/",
+    url: "https://gitbowl.zone.id/",
   },
   offers: {
     "@type": "Offer",
@@ -197,17 +197,17 @@ export const SCHEMA_WEBAPPLICATION = {
 export const SCHEMA_WEBSITE = {
   "@context": "https://schema.org",
   "@type": "WebSite",
-  "@id": "http://gitbowl.zone.id/#website",
-  url: "http://gitbowl.zone.id/",
+  "@id": "https://gitbowl.zone.id/#website",
+  url: "https://gitbowl.zone.id/",
   name: "GitBowl",
   publisher: {
-    "@id": "http://gitbowl.zone.id/#organization",
+    "@id": "https://gitbowl.zone.id/#organization",
   },
   potentialAction: {
     "@type": "SearchAction",
     target: {
       "@type": "EntryPoint",
-      urlTemplate: "http://gitbowl.zone.id/explore?q={search_term_string}",
+      urlTemplate: "https://gitbowl.zone.id/explore?q={search_term_string}",
     },
     "query-input": "required name=search_term_string",
   },
@@ -230,7 +230,7 @@ export const SCHEMA_FAQ = {
       name: "How do I push code to GitBowl using the Git CLI?",
       acceptedAnswer: {
         "@type": "Answer",
-        text: "Developers can push to GitBowl using standard git commands: run 'git remote add origin http://gitbowl.zone.id/api/public/git/{username}/{repo}.git' and then 'git push -u origin main'. Authenticate with your username and Personal Access Token (PAT) created in your GitBowl profile settings.",
+        text: "Developers can push to GitBowl using standard git commands: run 'git remote add origin https://gitbowl.zone.id/api/public/git/{username}/{repo}.git' and then 'git push -u origin main'. Authenticate with your username and Personal Access Token (PAT) created in your GitBowl profile settings.",
       },
     },
     {

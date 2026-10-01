@@ -39,4 +39,4 @@ Allow: /
 
 # Host & Sitemap definition
 Host: http://gitbowl.zone.id/
-Sitemap: http://gitbowl.zone.id/sitemap.xml
+Sitemap: https://gitbowl.zone.id/sitemap.xml

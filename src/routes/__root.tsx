@@ -147,8 +147,8 @@ export const Route = createRootRouteWithContext<{ queryClient: QueryClient }>()(
         content:
           "Host, push, pull, and edit code with Smart-HTTP Git protocol, unlimited public and private repositories, and 1-click GitHub repository import.",
       },
-      { property: "og:url", content: "http://gitbowl.zone.id/" },
-      { property: "og:image", content: "http://gitbowl.zone.id/og-image.png" },
+      { property: "og:url", content: "https://gitbowl.zone.id/" },
+      { property: "og:image", content: "https://gitbowl.zone.id/og-image.png" },
       { property: "og:image:width", content: "1200" },
       { property: "og:image:height", content: "630" },
       { property: "og:image:type", content: "image/png" },
@@ -168,7 +168,7 @@ export const Route = createRootRouteWithContext<{ queryClient: QueryClient }>()(
         content:
           "Lightweight, high-performance Git hosting platform with smart-HTTP protocol, repositories, commits, and built-in web editor.",
       },
-      { name: "twitter:image", content: "http://gitbowl.zone.id/og-image.png" },
+      { name: "twitter:image", content: "https://gitbowl.zone.id/og-image.png" },
     ],
     links: [
       { rel: "stylesheet", href: appCss },
@@ -178,7 +178,7 @@ export const Route = createRootRouteWithContext<{ queryClient: QueryClient }>()(
         rel: "stylesheet",
         href: "https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap",
       },
-      { rel: "canonical", href: "http://gitbowl.zone.id/" },
+      { rel: "canonical", href: "https://gitbowl.zone.id/" },
       { rel: "icon", href: "/favicon.svg", type: "image/svg+xml" },
       { rel: "alternate icon", href: "/favicon.ico" },
       { rel: "apple-touch-icon", href: "/apple-touch-icon.png" },
