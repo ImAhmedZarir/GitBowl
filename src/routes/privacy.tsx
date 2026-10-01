@@ -227,10 +227,10 @@ function PrivacyPage() {
               If you have any questions, concerns, or requests regarding this Privacy Policy or your
               data on GitBowl, please contact our privacy team at{" "}
               <a
-                href="mailto:support@gitbowl.zone.id"
+                href="mailto:mail.gitbowl@gmail.com"
                 className="text-primary font-medium underline"
               >
-                support@gitbowl.zone.id
+                mail.gitbowl@gmail.com
               </a>
               .
             </p>

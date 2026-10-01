@@ -1,7 +1,15 @@
+User-agent: *
+Allow: /
+Disallow: /api/
+
+# Explicitly allow primary search engines
 User-agent: Googlebot
 Allow: /
 
 User-agent: Bingbot
+Allow: /
+
+User-agent: Applebot
 Allow: /
 
 User-agent: Twitterbot
@@ -10,5 +18,25 @@ Allow: /
 User-agent: facebookexternalhit
 Allow: /
 
-User-agent: *
+# Explicitly allow AI Search Engines & Crawlers
+User-agent: GPTBot
 Allow: /
+
+User-agent: ChatGPT-User
+Allow: /
+
+User-agent: PerplexityBot
+Allow: /
+
+User-agent: ClaudeBot
+Allow: /
+
+User-agent: Google-Extended
+Allow: /
+
+User-agent: CCBot
+Allow: /
+
+# Host & Sitemap definition
+Host: http://gitbowl.zone.id/
+Sitemap: http://gitbowl.zone.id/sitemap.xml

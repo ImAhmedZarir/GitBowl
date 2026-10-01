@@ -11,12 +11,18 @@ import {
 import { useEffect, type ReactNode } from "react";
 
 import appCss from "../styles.css?url";
-import { reportLovableError } from "../lib/lovable-error-reporting";
 import { AuthProvider } from "@/lib/auth";
 import { Toaster } from "@/components/ui/sonner";
 import { BowlLogo } from "@/components/BowlLogo";
 import { TopProgressBar } from "@/components/TopProgressBar";
 import { Search, Home, RefreshCw, Compass } from "lucide-react";
+import {
+  GITBOWL_KEYWORDS,
+  SCHEMA_ORGANIZATION,
+  SCHEMA_WEBAPPLICATION,
+  SCHEMA_WEBSITE,
+  SCHEMA_FAQ,
+} from "@/lib/seo-schemas";
 
 function NotFoundComponent() {
   return (
@@ -56,9 +62,6 @@ function NotFoundComponent() {
 function ErrorComponent({ error, reset }: ErrorComponentProps) {
   console.error(error);
   const router = useRouter();
-  useEffect(() => {
-    reportLovableError(error, { boundary: "tanstack_root_error_component" });
-  }, [error]);
 
   return (
     <div className="flex min-h-screen flex-col items-center justify-center bg-background px-4 py-16 text-center">
@@ -100,20 +103,72 @@ export const Route = createRootRouteWithContext<{ queryClient: QueryClient }>()(
     meta: [
       { charSet: "utf-8" },
       { name: "viewport", content: "width=device-width, initial-scale=1" },
-      { title: "GitBowl — host, share and edit your code" },
+      { title: "GitBowl — High-Performance Git Code Hosting Platform" },
       {
         name: "description",
         content:
-          "GitBowl is a lightweight code hosting platform with repositories, commits, forks, stars and a built-in editor.",
+          "GitBowl is a high-performance Git repository hosting platform. Host, push, pull, edit, and collaborate on code with Smart-HTTP protocol, private and public repos, in-browser Monaco code editor, and instant 1-click GitHub migration.",
       },
-      { property: "og:title", content: "GitBowl — host, share and edit your code" },
+      { name: "keywords", content: GITBOWL_KEYWORDS },
+      { name: "author", content: "GitBowl (mail.gitbowl@gmail.com)" },
+      { name: "creator", content: "GitBowl" },
+      { name: "publisher", content: "GitBowl" },
+      {
+        name: "robots",
+        content: "index, follow, max-image-preview:large, max-snippet:-1, max-video-preview:-1",
+      },
+      {
+        name: "googlebot",
+        content: "index, follow, max-snippet:-1, max-image-preview:large, max-video-preview:-1",
+      },
+      {
+        name: "bingbot",
+        content: "index, follow, max-snippet:-1, max-image-preview:large",
+      },
+      { name: "theme-color", content: "#0B132B" },
+      { name: "color-scheme", content: "dark light" },
+      { name: "application-name", content: "GitBowl" },
+      { name: "apple-mobile-web-app-title", content: "GitBowl" },
+      { name: "apple-mobile-web-app-capable", content: "yes" },
+      { name: "rating", content: "general" },
+      { name: "distribution", content: "global" },
+      { name: "revisit-after", content: "1 days" },
+
+      // OpenGraph
+      { property: "og:site_name", content: "GitBowl" },
+      { property: "og:locale", content: "en_US" },
+      { property: "og:type", content: "website" },
+      {
+        property: "og:title",
+        content: "GitBowl — High-Performance Git Code Hosting Platform",
+      },
       {
         property: "og:description",
         content:
-          "GitBowl is a lightweight code hosting platform with repositories, commits, forks, stars and a built-in editor.",
+          "Host, push, pull, and edit code with Smart-HTTP Git protocol, unlimited public and private repositories, and 1-click GitHub repository import.",
       },
-      { property: "og:type", content: "website" },
+      { property: "og:url", content: "http://gitbowl.zone.id/" },
+      { property: "og:image", content: "http://gitbowl.zone.id/og-image.png" },
+      { property: "og:image:width", content: "1200" },
+      { property: "og:image:height", content: "630" },
+      { property: "og:image:type", content: "image/png" },
+      { property: "og:image:alt", content: "GitBowl — Your code, in a bowl." },
+      { property: "og:email", content: "mail.gitbowl@gmail.com" },
+
+      // Twitter Cards
       { name: "twitter:card", content: "summary_large_image" },
+      { name: "twitter:site", content: "@gitbowl" },
+      { name: "twitter:creator", content: "@gitbowl" },
+      {
+        name: "twitter:title",
+        content: "GitBowl — High-Performance Git Code Hosting Platform",
+      },
+      {
+        name: "twitter:description",
+        content:
+          "Lightweight, high-performance Git hosting platform with smart-HTTP protocol, repositories, commits, and built-in web editor.",
+      },
+      { name: "twitter:image", content: "http://gitbowl.zone.id/og-image.png" },
     ],
     links: [
       { rel: "stylesheet", href: appCss },
@@ -123,7 +178,28 @@ export const Route = createRootRouteWithContext<{ queryClient: QueryClient }>()(
         rel: "stylesheet",
         href: "https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap",
       },
-      { rel: "icon", href: "/favicon.ico", type: "image/x-icon" },
+      { rel: "canonical", href: "http://gitbowl.zone.id/" },
+      { rel: "icon", href: "/favicon.svg", type: "image/svg+xml" },
+      { rel: "alternate icon", href: "/favicon.ico" },
+      { rel: "apple-touch-icon", href: "/apple-touch-icon.png" },
+    ],
+    scripts: [
+      {
+        type: "application/ld+json",
+        children: JSON.stringify(SCHEMA_ORGANIZATION),
+      },
+      {
+        type: "application/ld+json",
+        children: JSON.stringify(SCHEMA_WEBAPPLICATION),
+      },
+      {
+        type: "application/ld+json",
+        children: JSON.stringify(SCHEMA_WEBSITE),
+      },
+      {
+        type: "application/ld+json",
+        children: JSON.stringify(SCHEMA_FAQ),
+      },
     ],
   }),
   shellComponent: RootShell,

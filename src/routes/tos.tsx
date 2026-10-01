@@ -208,8 +208,11 @@ function TermsPage() {
             <p className="text-sm text-muted-foreground">
               For DMCA copyright notifications, trademark inquiries, or general legal questions,
               please contact us at:{" "}
-              <a href="mailto:legal@gitbowl.zone.id" className="text-primary font-medium underline">
-                legal@gitbowl.zone.id
+              <a
+                href="mailto:mail.gitbowl@gmail.com"
+                className="text-primary font-medium underline"
+              >
+                mail.gitbowl@gmail.com
               </a>
               .
             </p>

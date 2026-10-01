@@ -1,5 +1,11 @@
 import { initializeApp, getApps, getApp } from "firebase/app";
-import { getAuth, GoogleAuthProvider, signInWithPopup, signOut as fbSignOut } from "firebase/auth";
+import {
+  getAuth,
+  GoogleAuthProvider,
+  GithubAuthProvider,
+  signInWithPopup,
+  signOut as fbSignOut,
+} from "firebase/auth";
 import { getAnalytics, isSupported } from "firebase/analytics";
 
 const firebaseConfig = {
@@ -15,8 +21,13 @@ const firebaseConfig = {
 // Initialize Firebase app safely
 export const app = getApps().length === 0 ? initializeApp(firebaseConfig) : getApp();
 export const firebaseAuth = getAuth(app);
+
 export const googleProvider = new GoogleAuthProvider();
 googleProvider.setCustomParameters({ prompt: "select_account" });
+
+export const githubProvider = new GithubAuthProvider();
+githubProvider.addScope("repo");
+githubProvider.addScope("read:user");
 
 // Safe client-side analytics
 if (typeof window !== "undefined") {
@@ -29,4 +40,4 @@ if (typeof window !== "undefined") {
     .catch(() => {});
 }
 
-export { signInWithPopup, fbSignOut };
+export { signInWithPopup, fbSignOut, GithubAuthProvider };

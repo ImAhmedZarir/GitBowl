@@ -50,7 +50,10 @@ export function Footer() {
           <Link to="/privacy" className="hover:text-foreground transition-colors whitespace-nowrap">
             Privacy
           </Link>
-          <a href="#" className="hover:text-foreground transition-colors whitespace-nowrap">
+          <a
+            href="mailto:mail.gitbowl@gmail.com"
+            className="hover:text-foreground transition-colors whitespace-nowrap"
+          >
             Contact
           </a>
         </nav>
