@@ -5,7 +5,7 @@ export const Route = createFileRoute("/sitemap.xml")({
   server: {
     handlers: {
       GET: async () => {
-        const baseUrl = "http://gitbowl.zone.id";
+        const baseUrl = "https://gitbowl.zone.id";
         const today = new Date().toISOString().split("T")[0];
 
         // Fetch all public repositories to list in sitemap
