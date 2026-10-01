@@ -146,6 +146,30 @@ export async function authenticate(request: Request, admin: Admin): Promise<stri
   let login = decoded.slice(0, idx);
   const password = decoded.slice(idx + 1);
   if (!login || !password) return null;
+
+  // Support Personal Access Tokens (token as password)
+  if (password.startsWith("gbp_")) {
+    try {
+      const hash = crypto.createHash("sha256").update(password).digest("hex");
+      const { data: pat } = await admin
+        .from("personal_access_tokens")
+        .select("id, user_id, expires_at")
+        .eq("token_hash", hash)
+        .maybeSingle();
+
+      if (pat && (!pat.expires_at || new Date(pat.expires_at) > new Date())) {
+        // Record last used time asynchronously
+        void admin
+          .from("personal_access_tokens")
+          .update({ last_used_at: new Date().toISOString() })
+          .eq("id", pat.id);
+        return pat.user_id;
+      }
+    } catch (err) {
+      console.warn("PAT verification error:", err);
+    }
+  }
+
   if (!login.includes("@")) {
     const { data: p } = await admin
       .from("profiles")
@@ -517,12 +541,29 @@ export async function receivePack(admin: Admin, repo: Repo, userId: string, requ
           .filter((f) => !files.some((n) => n.path === f.path))
           .map((f) => ({ path: f.path, type: "deleted" })),
       ];
-      await admin.from("repo_files").delete().eq("repo_id", repo.id);
-      for (let i = 0; i < files.length; i += 100) {
-        const { error } = await admin
-          .from("repo_files")
-          .insert(files.slice(i, i + 100).map((f) => ({ ...f, repo_id: repo.id })));
-        if (error) throw error;
+      // Incremental updates: only upsert changed/added files, and delete removed files
+      const toUpsert = files.filter((f) => oldMap.get(f.path) !== f.content);
+      const toDelete = old.filter((f) => !files.some((n) => n.path === f.path)).map((f) => f.path);
+
+      if (toUpsert.length) {
+        for (let i = 0; i < toUpsert.length; i += 100) {
+          const { error } = await admin.from("repo_files").upsert(
+            toUpsert.slice(i, i + 100).map((f) => ({ ...f, repo_id: repo.id })),
+            { onConflict: "repo_id,path" },
+          );
+          if (error) throw error;
+        }
+      }
+
+      if (toDelete.length) {
+        for (let i = 0; i < toDelete.length; i += 100) {
+          const { error } = await admin
+            .from("repo_files")
+            .delete()
+            .eq("repo_id", repo.id)
+            .in("path", toDelete.slice(i, i + 100));
+          if (error) throw error;
+        }
       }
       const now = Date.now();
       const rows = msgs.reverse().map((m, i, arr) => ({

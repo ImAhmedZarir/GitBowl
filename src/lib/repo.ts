@@ -5,7 +5,7 @@ export type RepoFile = {
   id: string;
   repo_id: string;
   path: string;
-  content: string;
+  content?: string;
   is_binary: boolean;
   size: number;
   updated_at: string;
@@ -153,6 +153,23 @@ export async function copyRepository(opts: {
   description: string | null;
   isFork: boolean;
 }) {
+  // Try atomic server-side RPC first
+  try {
+    const { data: rpcRepoId, error: rpcError } = await (supabase.rpc as any)("fork_repository", {
+      p_source_repo_id: opts.sourceRepoId,
+      p_new_owner_id: opts.newOwnerId,
+      p_new_name: opts.newName,
+      p_description: opts.description,
+      p_is_fork: opts.isFork,
+    });
+
+    if (!rpcError && rpcRepoId) {
+      return { id: rpcRepoId, name: opts.newName };
+    }
+  } catch (err) {
+    console.warn("fork_repository RPC unavailable, falling back:", err);
+  }
+
   const { data: files, error: filesError } = await supabase
     .from("repo_files")
     .select("path, content, is_binary, size")
@@ -186,7 +203,7 @@ export async function copyRepository(opts: {
   });
 
   if (opts.isFork) {
-    await supabase.rpc("increment_fork_count", { _repo_id: opts.sourceRepoId });
+    await supabase.rpc("increment_fork_count", { _repo_id: opts.sourceRepoId }).catch(() => {});
   }
 
   return repo;

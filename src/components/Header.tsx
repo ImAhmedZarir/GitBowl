@@ -27,6 +27,7 @@ import { BowlLogo } from "@/components/BowlLogo";
 import { ThemeToggle } from "@/components/ThemeToggle";
 import { GlobalSearch } from "@/components/GlobalSearch";
 import { KeyboardShortcutsModal } from "@/components/KeyboardShortcutsModal";
+import { firebaseAuth, fbSignOut } from "@/lib/firebase";
 
 export function Header() {
   const { user, profile } = useAuth();
@@ -38,6 +39,7 @@ export function Header() {
   async function signOut() {
     await queryClient.cancelQueries();
     queryClient.clear();
+    await fbSignOut(firebaseAuth).catch(() => {});
     await supabase.auth.signOut();
     navigate({ to: "/auth", replace: true });
   }
@@ -67,14 +69,16 @@ export function Header() {
                 Explore
               </Link>
               <Link
-                to="/explore"
+                to="/pulls"
                 className="rounded-md px-2.5 py-1.5 text-xs font-medium text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
+                activeProps={{ className: "text-foreground bg-accent font-semibold" }}
               >
                 Pull requests
               </Link>
               <Link
-                to="/explore"
+                to="/issues"
                 className="rounded-md px-2.5 py-1.5 text-xs font-medium text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
+                activeProps={{ className: "text-foreground bg-accent font-semibold" }}
               >
                 Issues
               </Link>

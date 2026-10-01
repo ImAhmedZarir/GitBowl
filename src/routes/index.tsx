@@ -74,46 +74,73 @@ function DashboardView() {
     queryKey: ["dashboard-my-repos", user?.id],
     queryFn: async () => {
       if (!user) return [];
-      const { data, error } = await supabase
-        .from("repositories")
-        .select("*, profiles!inner(username)")
-        .eq("owner_id", user.id)
-        .order("updated_at", { ascending: false });
-      if (error) throw error;
-      return data ?? [];
+      try {
+        const { data, error } = await supabase
+          .from("repositories")
+          .select("*, profiles!repositories_owner_id_fkey(username)")
+          .eq("owner_id", user.id)
+          .order("updated_at", { ascending: false });
+        if (error) {
+          console.warn("Could not load user repos:", error.message);
+          return [];
+        }
+        return data ?? [];
+      } catch (err) {
+        console.warn("User repos error:", err);
+        return [];
+      }
     },
     enabled: !!user,
+    retry: false,
   });
 
   // Recent activity (commits across repositories)
   const { data: recentCommits, isLoading: loadingCommits } = useQuery({
     queryKey: ["dashboard-activity-feed"],
     queryFn: async () => {
-      const { data, error } = await supabase
-        .from("commits")
-        .select(
-          "id, message, sha, created_at, repositories!inner(id, name, is_private, profiles!inner(username))",
-        )
-        .order("created_at", { ascending: false })
-        .limit(15);
-      if (error) throw error;
-      return data ?? [];
+      try {
+        const { data, error } = await supabase
+          .from("commits")
+          .select(
+            "id, message, created_at, repositories(id, name, is_private, profiles!repositories_owner_id_fkey(username))",
+          )
+          .order("created_at", { ascending: false })
+          .limit(15);
+        if (error) {
+          console.warn("Could not load activity feed:", error.message);
+          return [];
+        }
+        return data ?? [];
+      } catch (err) {
+        console.warn("Activity feed error:", err);
+        return [];
+      }
     },
+    retry: false,
   });
 
   // Trending / suggested repositories
   const { data: trendingRepos } = useQuery({
     queryKey: ["dashboard-trending"],
     queryFn: async () => {
-      const { data, error } = await supabase
-        .from("repositories")
-        .select("*, profiles!inner(username)")
-        .eq("is_private", false)
-        .order("stars_count", { ascending: false })
-        .limit(4);
-      if (error) throw error;
-      return data ?? [];
+      try {
+        const { data, error } = await supabase
+          .from("repositories")
+          .select("*, profiles!repositories_owner_id_fkey(username)")
+          .eq("is_private", false)
+          .order("stars_count", { ascending: false })
+          .limit(4);
+        if (error) {
+          console.warn("Could not load trending repos:", error.message);
+          return [];
+        }
+        return data ?? [];
+      } catch (err) {
+        console.warn("Trending repos error:", err);
+        return [];
+      }
     },
+    retry: false,
   });
 
   const filteredRepos = (myRepos ?? []).filter((r: any) =>
@@ -238,7 +265,7 @@ function DashboardView() {
                           {owner}/{repoName}
                         </Link>
                         <span className="text-[11px] text-muted-foreground font-mono">
-                          {c.sha.slice(0, 7)}
+                          {(c.id || "").slice(0, 7)}
                         </span>
                       </div>
                       <p className="mt-1 text-xs text-foreground/90 font-medium truncate">
@@ -346,33 +373,48 @@ function LandingView() {
   const { data: stats } = useQuery({
     queryKey: ["landing-stats"],
     queryFn: async () => {
-      const [{ count: reposCount }, { count: usersCount }, { count: commitsCount }] =
-        await Promise.all([
-          supabase.from("repositories").select("*", { count: "exact", head: true }),
-          supabase.from("profiles").select("*", { count: "exact", head: true }),
-          supabase.from("commits").select("*", { count: "exact", head: true }),
-        ]);
-      return {
-        repos: reposCount ?? 0,
-        users: usersCount ?? 0,
-        commits: commitsCount ?? 0,
-      };
+      try {
+        const [{ count: reposCount }, { count: usersCount }, { count: commitsCount }] =
+          await Promise.all([
+            supabase.from("repositories").select("*", { count: "exact", head: true }),
+            supabase.from("profiles").select("*", { count: "exact", head: true }),
+            supabase.from("commits").select("*", { count: "exact", head: true }),
+          ]);
+        return {
+          repos: reposCount ?? 0,
+          users: usersCount ?? 0,
+          commits: commitsCount ?? 0,
+        };
+      } catch (err) {
+        console.warn("Could not load stats:", err);
+        return { repos: 0, users: 0, commits: 0 };
+      }
     },
+    retry: false,
   });
 
   // Trending repositories
   const { data: topRepos, isLoading: loadingTopRepos } = useQuery({
     queryKey: ["landing-top-repos"],
     queryFn: async () => {
-      const { data, error } = await supabase
-        .from("repositories")
-        .select("*, profiles!inner(username, display_name)")
-        .eq("is_private", false)
-        .order("stars_count", { ascending: false })
-        .limit(6);
-      if (error) throw error;
-      return data ?? [];
+      try {
+        const { data, error } = await supabase
+          .from("repositories")
+          .select("*, profiles!repositories_owner_id_fkey(username, display_name)")
+          .eq("is_private", false)
+          .order("stars_count", { ascending: false })
+          .limit(6);
+        if (error) {
+          console.warn("Could not load top repos:", error.message);
+          return [];
+        }
+        return data ?? [];
+      } catch (err) {
+        console.warn("Top repos error:", err);
+        return [];
+      }
     },
+    retry: false,
   });
 
   return (
@@ -389,14 +431,14 @@ function LandingView() {
                 <span>Next-generation Git hosting</span>
               </div>
 
-              <h1 className="text-4xl font-extrabold tracking-tight text-foreground sm:text-6xl sm:leading-tight">
+              <h1 className="text-4xl font-extrabold tracking-tight text-foreground sm:text-6xl sm:leading-tight text-balance">
                 Your code,{" "}
                 <span className="bg-gradient-to-r from-primary to-success bg-clip-text text-transparent">
                   in a bowl.
                 </span>
               </h1>
 
-              <p className="max-w-xl text-base text-muted-foreground sm:text-lg sm:leading-relaxed">
+              <p className="max-w-xl mx-auto lg:mx-0 text-base text-muted-foreground sm:text-lg sm:leading-relaxed text-pretty">
                 A fast, modern GitHub alternative with in-browser Monaco editing, zip project
                 imports, real Git over HTTPS, and zero enterprise fluff.
               </p>

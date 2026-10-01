@@ -16,6 +16,7 @@ import {
   User,
 } from "lucide-react";
 import { supabase } from "@/integrations/supabase/client";
+import { firebaseAuth, googleProvider, signInWithPopup } from "@/lib/firebase";
 import { useAuth } from "@/lib/auth";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -24,6 +25,9 @@ import { BowlLogo } from "@/components/BowlLogo";
 import { ThemeToggle } from "@/components/ThemeToggle";
 
 export const Route = createFileRoute("/auth")({
+  validateSearch: (s: Record<string, unknown>): { redirect?: string | undefined } => ({
+    redirect: typeof s["redirect"] === "string" ? (s["redirect"] as string) : undefined,
+  }),
   head: () => ({
     meta: [
       { title: "Sign in to GitBowl — Your code, in a bowl." },
@@ -57,7 +61,9 @@ function calculatePasswordStrength(pass: string): { score: number; label: string
 }
 
 function AuthPage() {
+  const search = Route.useSearch();
   const [mode, setMode] = useState<"signin" | "signup" | "forgot">("signin");
+  const [identifier, setIdentifier] = useState("");
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [showPassword, setShowPassword] = useState(false);
@@ -74,9 +80,9 @@ function AuthPage() {
 
   useEffect(() => {
     if (user) {
-      navigate({ to: "/", replace: true });
+      navigate({ to: search.redirect || "/", replace: true });
     }
-  }, [user, navigate]);
+  }, [user, navigate, search.redirect]);
 
   // Live username availability check on signup
   useEffect(() => {
@@ -128,13 +134,85 @@ function AuthPage() {
     setErrorMessage(null);
     setBusy(true);
 
+    const loginId = identifier.trim();
+    if (!loginId || !password) {
+      setErrorMessage("Please enter your username or email and password");
+      setBusy(false);
+      return;
+    }
+
     try {
-      const { error } = await supabase.auth.signInWithPassword({ email, password });
-      if (error) throw error;
+      const res = await fetch("/api/auth/login", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ identifier: loginId, password }),
+      });
+
+      const data = await res.json();
+      if (!res.ok || data.error) {
+        throw new Error(data.error || "Invalid credentials");
+      }
+
+      if (data.session) {
+        const { error: sessionError } = await supabase.auth.setSession(data.session);
+        if (sessionError) throw sessionError;
+      }
+
       toast.success("Welcome back to GitBowl!");
-      navigate({ to: "/" });
+      navigate({ to: search.redirect || "/" });
     } catch (err) {
-      const msg = err instanceof Error ? err.message : "Failed to sign in";
+      const msg = err instanceof Error ? err.message : "Invalid credentials";
+      setErrorMessage(msg);
+      toast.error(msg);
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function handleGoogleSignIn() {
+    setBusy(true);
+    setErrorMessage(null);
+    try {
+      const res = await signInWithPopup(firebaseAuth, googleProvider);
+      const fbUser = res.user;
+
+      if (!fbUser.email) {
+        throw new Error("Google account did not provide an email address.");
+      }
+
+      // Sync user with backend to establish Supabase session
+      const syncRes = await fetch("/api/auth/google-sync", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          email: fbUser.email,
+          displayName: fbUser.displayName || fbUser.email.split("@")[0],
+          photoURL: fbUser.photoURL,
+        }),
+      });
+
+      const syncData = await syncRes.json();
+      if (!syncRes.ok || syncData.error) {
+        throw new Error(syncData.error || "Failed to establish server session");
+      }
+
+      // Complete session establishment in Supabase client
+      if (syncData.hashed_token) {
+        const { error: otpError } = await supabase.auth.verifyOtp({
+          token_hash: syncData.hashed_token,
+          type: "magiclink",
+        });
+        if (otpError) throw otpError;
+      }
+
+      toast.success(`Welcome to GitBowl, ${fbUser.displayName || fbUser.email}!`);
+      navigate({ to: search.redirect || "/" });
+    } catch (err: any) {
+      if (err.code === "auth/popup-closed-by-user" || err.code === "auth/cancelled-popup-request") {
+        setBusy(false);
+        return;
+      }
+      const msg = err instanceof Error ? err.message : "Failed to sign in with Google";
       setErrorMessage(msg);
       toast.error(msg);
     } finally {
@@ -355,6 +433,46 @@ function AuthPage() {
                 </div>
               </div>
 
+              {/* Google Sign In Button */}
+              <Button
+                type="button"
+                variant="outline"
+                onClick={handleGoogleSignIn}
+                disabled={busy}
+                className="w-full h-10 gap-2.5 text-xs font-semibold hover:bg-muted/80 border-border bg-card shadow-xs"
+              >
+                <svg className="h-4 w-4 shrink-0" viewBox="0 0 24 24">
+                  <path
+                    fill="#4285F4"
+                    d="M23.745 12.27c0-.7-.06-1.4-.19-2.07H12v4.51h6.6c-.29 1.52-1.14 2.8-2.4 3.65v3.03h3.88c2.27-2.09 3.66-5.17 3.66-9.12z"
+                  />
+                  <path
+                    fill="#34A853"
+                    d="M12 24c3.24 0 5.95-1.08 7.93-2.91l-3.88-3.03c-1.08.72-2.45 1.16-4.05 1.16-3.12 0-5.77-2.1-6.72-4.93H1.25v3.13C3.27 21.43 7.33 24 12 24z"
+                  />
+                  <path
+                    fill="#FBBC05"
+                    d="M5.28 14.29c-.25-.72-.38-1.49-.38-2.29s.13-1.57.38-2.29V6.58H1.25C.45 8.17 0 9.99 0 12s.45 3.83 1.25 5.42l4.03-3.13z"
+                  />
+                  <path
+                    fill="#EA4335"
+                    d="M12 4.75c1.77 0 3.35.61 4.6 1.8l3.42-3.42C17.95 1.19 15.24 0 12 0 7.33 0 3.27 2.57 1.25 6.58l4.03 3.13c.95-2.83 3.6-4.96 6.72-4.96z"
+                  />
+                </svg>
+                <span>Continue with Google</span>
+              </Button>
+
+              <div className="relative">
+                <div className="absolute inset-0 flex items-center">
+                  <div className="w-full border-t border-border" />
+                </div>
+                <div className="relative flex justify-center text-[10px] uppercase">
+                  <span className="bg-card px-2 text-muted-foreground font-medium">
+                    Or continue with
+                  </span>
+                </div>
+              </div>
+
               {errorMessage && (
                 <div className="flex items-center gap-2 rounded-lg border border-destructive/20 bg-destructive/10 p-3 text-xs text-destructive">
                   <AlertCircle className="h-4 w-4 shrink-0" />
@@ -406,21 +524,39 @@ function AuthPage() {
                   </div>
                 )}
 
-                <div className="space-y-1.5">
-                  <Label htmlFor="email" className="text-xs">
-                    Email address
-                  </Label>
-                  <Input
-                    id="email"
-                    type="email"
-                    required
-                    placeholder="you@domain.com"
-                    value={email}
-                    onChange={(e) => setEmail(e.target.value)}
-                    className="h-9 text-xs"
-                    autoComplete="email"
-                  />
-                </div>
+                {mode === "signin" ? (
+                  <div className="space-y-1.5">
+                    <Label htmlFor="identifier" className="text-xs">
+                      Username or email
+                    </Label>
+                    <Input
+                      id="identifier"
+                      type="text"
+                      required
+                      placeholder="username or you@domain.com"
+                      value={identifier}
+                      onChange={(e) => setIdentifier(e.target.value)}
+                      className="h-9 text-xs"
+                      autoComplete="username"
+                    />
+                  </div>
+                ) : (
+                  <div className="space-y-1.5">
+                    <Label htmlFor="email" className="text-xs">
+                      Email address
+                    </Label>
+                    <Input
+                      id="email"
+                      type="email"
+                      required
+                      placeholder="you@domain.com"
+                      value={email}
+                      onChange={(e) => setEmail(e.target.value)}
+                      className="h-9 text-xs"
+                      autoComplete="email"
+                    />
+                  </div>
+                )}
 
                 <div className="space-y-1.5">
                   <div className="flex items-center justify-between">
@@ -505,8 +641,22 @@ function AuthPage() {
                 </Button>
               </form>
 
-              <p className="text-center text-[11px] text-muted-foreground">
-                By continuing, you agree to GitBowl&apos;s Terms of Service and Privacy Policy.
+              <p className="text-center text-[11px] text-muted-foreground leading-relaxed">
+                By continuing, you agree to GitBowl&apos;s{" "}
+                <Link
+                  to="/tos"
+                  className="text-primary font-medium underline hover:text-primary/80"
+                >
+                  Terms of Service
+                </Link>{" "}
+                and{" "}
+                <Link
+                  to="/privacy"
+                  className="text-primary font-medium underline hover:text-primary/80"
+                >
+                  Privacy Policy
+                </Link>
+                .
               </p>
             </div>
           )}

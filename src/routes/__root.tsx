@@ -15,6 +15,7 @@ import { reportLovableError } from "../lib/lovable-error-reporting";
 import { AuthProvider } from "@/lib/auth";
 import { Toaster } from "@/components/ui/sonner";
 import { BowlLogo } from "@/components/BowlLogo";
+import { TopProgressBar } from "@/components/TopProgressBar";
 import { Search, Home, RefreshCw, Compass } from "lucide-react";
 
 function NotFoundComponent() {
@@ -156,6 +157,7 @@ function RootComponent() {
   return (
     <QueryClientProvider client={queryClient}>
       <AuthProvider>
+        <TopProgressBar />
         {/* Required: nested routes render here. Removing <Outlet /> breaks all child routes. */}
         <Outlet />
         <Toaster />

@@ -54,7 +54,9 @@ export function GlobalSearch({ open, onOpenChange }: GlobalSearchProps) {
       try {
         let req = supabase
           .from("repositories")
-          .select("id, name, description, is_private, profiles!inner(username)")
+          .select(
+            "id, name, description, is_private, profiles!repositories_owner_id_fkey(username)",
+          )
           .limit(8);
 
         if (query.trim()) {

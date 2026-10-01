@@ -3,6 +3,29 @@ import { createFileRoute } from "@tanstack/react-router";
 // Git Smart-HTTP endpoint. Also reachable as https://<host>/<owner>/<repo>.git (rewritten in src/server.ts).
 const noCache = { "Cache-Control": "no-cache", Pragma: "no-cache" };
 
+// Sliding window rate limiter for Git protocol operations
+const gitRateLimits = new Map<string, { read: number; write: number; resetAt: number }>();
+
+function checkGitRateLimit(ip: string, isWrite: boolean): boolean {
+  const now = Date.now();
+  const entry = gitRateLimits.get(ip);
+  if (!entry || now > entry.resetAt) {
+    gitRateLimits.set(ip, {
+      read: isWrite ? 0 : 1,
+      write: isWrite ? 1 : 0,
+      resetAt: now + 60 * 1000,
+    });
+    return false;
+  }
+  if (isWrite) {
+    entry.write++;
+    return entry.write > 30; // max 30 pushes per min
+  } else {
+    entry.read++;
+    return entry.read > 90; // max 90 reads per min
+  }
+}
+
 const text = (body: string, status = 200, extra: Record<string, string> = {}) =>
   new Response(body, {
     status,
@@ -29,6 +52,12 @@ async function handle(request: Request, splat: string) {
     action === "info/refs" ? new URL(request.url).searchParams.get("service") : action;
   if (service !== "git-upload-pack" && service !== "git-receive-pack") {
     return text("Please upgrade your git client (smart HTTP required).", 403);
+  }
+
+  const clientIp = request.headers.get("x-forwarded-for")?.split(",")[0]?.trim() || "127.0.0.1";
+  const isWrite = service === "git-receive-pack";
+  if (checkGitRateLimit(clientIp, isWrite)) {
+    return text("Rate limit exceeded for git operations. Please retry in 1 minute.", 429);
   }
 
   const needsAuth = service === "git-receive-pack" || repo.is_private;
