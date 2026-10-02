@@ -84,10 +84,22 @@ export const Route = createFileRoute("/api/auth/github-sync")({
             );
           }
 
+          const { data: currentProfile } = await supabaseAdmin
+            .from("profiles")
+            .select("username, display_name")
+            .eq("id", userId)
+            .single();
+
           return new Response(
             JSON.stringify({
               hashed_token: linkData.properties.hashed_token,
               userId,
+              isNewUser: !existingUser,
+              suggestedUsername:
+                currentProfile?.username ||
+                displayName?.toLowerCase().replace(/[^a-z0-9-]/g, "-") ||
+                "gh-dev",
+              displayName: currentProfile?.display_name || displayName,
             }),
             { status: 200, headers: { "Content-Type": "application/json" } },
           );

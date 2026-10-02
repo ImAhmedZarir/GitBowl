@@ -6,6 +6,7 @@ import { Buffer } from "buffer";
 import * as pako from "pako";
 import { createClient } from "@supabase/supabase-js";
 import type { Database } from "@/integrations/supabase/types";
+import { syncFilesToGoogleDrive } from "@/lib/gdrive.server";
 
 type Admin = ReturnType<typeof createClient<Database>>;
 type GitObj = { type: string; body: Buffer };
@@ -552,6 +553,21 @@ export async function receivePack(admin: Admin, repo: Repo, userId: string, requ
             { onConflict: "repo_id,path" },
           );
           if (error) throw error;
+        }
+
+        // Mirror committed files to central Google Drive storage
+        try {
+          const { data: ownerProfile } = await admin
+            .from("profiles")
+            .select("username")
+            .eq("id", repo.owner_id)
+            .single();
+          const ownerUser = ownerProfile?.username || "developer";
+          syncFilesToGoogleDrive(ownerUser, repo.name, toUpsert).catch((err) =>
+            console.warn("[GDrive] Git push sync error:", err),
+          );
+        } catch (e) {
+          console.warn("[GDrive] Lookup profile for Drive sync error:", e);
         }
       }
 

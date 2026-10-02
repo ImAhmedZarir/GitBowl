@@ -12,6 +12,9 @@ import {
   Keyboard,
   FolderGit2,
   FilePlus,
+  Settings as SettingsIcon,
+  Key,
+  HardDrive,
 } from "lucide-react";
 import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/lib/auth";
@@ -202,6 +205,22 @@ export function Header() {
                     <DropdownMenuItem asChild>
                       <Link to="/explore" className="gap-2 text-xs">
                         <Star className="h-3.5 w-3.5" /> Starred repositories
+                      </Link>
+                    </DropdownMenuItem>
+                    <DropdownMenuSeparator />
+                    <DropdownMenuItem asChild>
+                      <Link to="/settings" search={{ tab: "profile" }} className="gap-2 text-xs">
+                        <SettingsIcon className="h-3.5 w-3.5" /> Settings
+                      </Link>
+                    </DropdownMenuItem>
+                    <DropdownMenuItem asChild>
+                      <Link to="/settings" search={{ tab: "tokens" }} className="gap-2 text-xs">
+                        <Key className="h-3.5 w-3.5" /> Access Tokens (PAT)
+                      </Link>
+                    </DropdownMenuItem>
+                    <DropdownMenuItem asChild>
+                      <Link to="/settings" search={{ tab: "storage" }} className="gap-2 text-xs">
+                        <HardDrive className="h-3.5 w-3.5" /> Cloud Storage
                       </Link>
                     </DropdownMenuItem>
                     <DropdownMenuSeparator />

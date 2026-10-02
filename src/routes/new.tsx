@@ -175,6 +175,22 @@ function NewRepo() {
       if (rows.length) {
         const { error: fileError } = await supabase.from("repo_files").insert(rows);
         if (fileError) throw fileError;
+
+        // Mirror initial repository files to Google Drive
+        fetch("/api/repo/sync-drive", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            repoId: repo.id,
+            owner: profile.username,
+            repoName: repo.name,
+            files: rows.map((r) => ({
+              path: r.path,
+              content: r.content,
+              is_binary: r.is_binary,
+            })),
+          }),
+        }).catch((err) => console.warn("[GDrive] New repo sync warning:", err));
       }
       await supabase.from("commits").insert({
         repo_id: repo.id,

@@ -14,6 +14,7 @@ import {
   Lock,
   Mail,
   User,
+  RefreshCw,
 } from "lucide-react";
 import { supabase } from "@/integrations/supabase/client";
 import {
@@ -81,14 +82,114 @@ function AuthPage() {
   const [resetSent, setResetSent] = useState(false);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
 
+  // New account OAuth username onboarding
+  const [onboardingData, setOnboardingData] = useState<{
+    userId: string;
+    email: string;
+    displayName: string;
+    initialUsername: string;
+    redirectUrl: string;
+  } | null>(null);
+  const [chosenUsername, setChosenUsername] = useState("");
+  const [chosenDisplayName, setChosenDisplayName] = useState("");
+  const [onboardingChecking, setOnboardingChecking] = useState(false);
+  const [onboardingAvailable, setOnboardingAvailable] = useState<boolean | null>(null);
+  const [onboardingError, setOnboardingError] = useState<string | null>(null);
+  const [completingOnboarding, setCompletingOnboarding] = useState(false);
+
   const navigate = useNavigate();
   const { user } = useAuth();
 
   useEffect(() => {
-    if (user) {
+    if (user && !onboardingData) {
       navigate({ to: search.redirect || "/", replace: true });
     }
-  }, [user, navigate, search.redirect]);
+  }, [user, navigate, search.redirect, onboardingData]);
+
+  // Live validation for chosen onboarding username
+  useEffect(() => {
+    const clean = chosenUsername.trim().toLowerCase();
+    if (!clean || !onboardingData) {
+      setOnboardingAvailable(null);
+      setOnboardingError(null);
+      setOnboardingChecking(false);
+      return;
+    }
+
+    if (clean.length < 3) {
+      setOnboardingAvailable(false);
+      setOnboardingError("Username must be at least 3 characters");
+      return;
+    }
+
+    if (!/^[a-z0-9]([a-z0-9-]{1,37}[a-z0-9])?$/.test(clean)) {
+      setOnboardingAvailable(false);
+      setOnboardingError("Letters, numbers, and single hyphens only");
+      return;
+    }
+
+    setOnboardingChecking(true);
+    setOnboardingError(null);
+
+    const timer = setTimeout(async () => {
+      try {
+        const res = await fetch(
+          `/api/auth/check-username?username=${encodeURIComponent(clean)}&excludeUserId=${onboardingData.userId}`,
+        );
+        const data = await res.json();
+        setOnboardingAvailable(data.available);
+        if (!data.available) {
+          setOnboardingError(data.reason || "Username is already taken");
+        } else {
+          setOnboardingError(null);
+        }
+      } catch {
+        setOnboardingAvailable(null);
+      } finally {
+        setOnboardingChecking(false);
+      }
+    }, 350);
+
+    return () => clearTimeout(timer);
+  }, [chosenUsername, onboardingData]);
+
+  async function handleCompleteOnboarding(e: React.FormEvent) {
+    e.preventDefault();
+    if (!onboardingData) return;
+
+    const cleanUser = chosenUsername.trim().toLowerCase();
+    if (!cleanUser || onboardingError) {
+      toast.error(onboardingError || "Please choose a valid available username");
+      return;
+    }
+
+    setCompletingOnboarding(true);
+    try {
+      const res = await fetch("/api/auth/complete-onboarding", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          userId: onboardingData.userId,
+          username: cleanUser,
+          displayName: chosenDisplayName.trim() || cleanUser,
+        }),
+      });
+
+      const data = await res.json();
+      if (!res.ok || data.error) {
+        throw new Error(data.error || "Failed to finalize registration");
+      }
+
+      toast.success(`Welcome to GitBowl, @${cleanUser}!`);
+      const target = onboardingData.redirectUrl;
+      setOnboardingData(null);
+      navigate({ to: target || "/" });
+    } catch (err: any) {
+      toast.error(err.message || "Failed to set username");
+    } finally {
+      setCompletingOnboarding(false);
+    }
+  }
 
   // Live username availability check on signup
   useEffect(() => {
@@ -211,7 +312,21 @@ function AuthPage() {
         if (otpError) throw otpError;
       }
 
-      toast.success(`Welcome to GitBowl, ${fbUser.displayName || fbUser.email}!`);
+      if (syncData.isNewUser) {
+        setOnboardingData({
+          userId: syncData.userId,
+          email: fbUser.email,
+          displayName: syncData.displayName || fbUser.displayName || "",
+          initialUsername: syncData.suggestedUsername || "",
+          redirectUrl: search.redirect || "/",
+        });
+        setChosenUsername(syncData.suggestedUsername || "");
+        setChosenDisplayName(syncData.displayName || fbUser.displayName || "");
+        toast.info("Welcome to GitBowl! Choose your developer handle to complete setup.");
+        return;
+      }
+
+      toast.success(`Welcome back to GitBowl, ${fbUser.displayName || fbUser.email}!`);
       navigate({ to: search.redirect || "/" });
     } catch (err: any) {
       if (err.code === "auth/popup-closed-by-user" || err.code === "auth/cancelled-popup-request") {
@@ -261,6 +376,20 @@ function AuthPage() {
           type: "magiclink",
         });
         if (otpError) throw otpError;
+      }
+
+      if (syncData.isNewUser) {
+        setOnboardingData({
+          userId: syncData.userId,
+          email: fbUser.email || "",
+          displayName: syncData.displayName || fbUser.displayName || "developer",
+          initialUsername: syncData.suggestedUsername || "",
+          redirectUrl: search.redirect || "/new?tab=import",
+        });
+        setChosenUsername(syncData.suggestedUsername || "");
+        setChosenDisplayName(syncData.displayName || fbUser.displayName || "developer");
+        toast.info("Welcome to GitBowl! Choose your developer handle to complete setup.");
+        return;
       }
 
       toast.success(`Signed in with GitHub! Welcome, ${fbUser.displayName || "developer"}!`);
@@ -361,7 +490,109 @@ function AuthPage() {
 
         {/* Center Card */}
         <div className="mx-auto w-full max-w-sm py-8">
-          {sent ? (
+          {onboardingData ? (
+            <div className="space-y-5">
+              <div>
+                <div className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-primary/10 text-primary text-[11px] font-semibold mb-2">
+                  🎉 Welcome to GitBowl!
+                </div>
+                <h1 className="text-xl font-bold tracking-tight text-foreground">
+                  Choose your developer handle
+                </h1>
+                <p className="mt-1 text-xs text-muted-foreground leading-relaxed">
+                  Your handle will be your public identity on GitBowl, used for your profile URL and
+                  your Git remote repository clone paths.
+                </p>
+              </div>
+
+              <form onSubmit={handleCompleteOnboarding} className="space-y-4">
+                <div className="space-y-1.5">
+                  <Label htmlFor="onboarding-name" className="text-xs font-medium">
+                    Display Name
+                  </Label>
+                  <Input
+                    id="onboarding-name"
+                    type="text"
+                    value={chosenDisplayName}
+                    onChange={(e) => setChosenDisplayName(e.target.value)}
+                    placeholder="e.g. John Doe"
+                    className="h-9 text-xs"
+                    required
+                  />
+                </div>
+
+                <div className="space-y-1.5">
+                  <Label
+                    htmlFor="onboarding-username"
+                    className="text-xs font-medium flex items-center justify-between"
+                  >
+                    <span>Username</span>
+                    {onboardingChecking && (
+                      <span className="text-[11px] text-muted-foreground flex items-center gap-1">
+                        <RefreshCw className="h-3 w-3 animate-spin" /> Checking...
+                      </span>
+                    )}
+                    {!onboardingChecking && onboardingAvailable === true && (
+                      <span className="text-[11px] text-success flex items-center gap-1 font-medium">
+                        <Check className="h-3 w-3" /> Available
+                      </span>
+                    )}
+                    {!onboardingChecking && onboardingAvailable === false && (
+                      <span className="text-[11px] text-destructive flex items-center gap-1">
+                        <AlertCircle className="h-3 w-3" /> {onboardingError || "Unavailable"}
+                      </span>
+                    )}
+                  </Label>
+
+                  <div className="flex rounded-md shadow-xs">
+                    <span className="inline-flex items-center px-3 rounded-l-md border border-r-0 border-input bg-muted/60 text-muted-foreground text-xs font-mono">
+                      gitbowl.zone.id/
+                    </span>
+                    <Input
+                      id="onboarding-username"
+                      type="text"
+                      required
+                      value={chosenUsername}
+                      onChange={(e) =>
+                        setChosenUsername(e.target.value.toLowerCase().replace(/[^a-z0-9-]/g, ""))
+                      }
+                      placeholder="username"
+                      className="rounded-l-none h-9 text-xs font-mono"
+                    />
+                  </div>
+                  <p className="text-[11px] text-muted-foreground">
+                    3-39 characters. Lowercase letters, numbers, and single hyphens.
+                  </p>
+                </div>
+
+                {/* Preview Box */}
+                {chosenUsername && (
+                  <div className="rounded-lg border border-border/80 bg-muted/30 p-3 space-y-1 font-mono text-[11px]">
+                    <div className="text-muted-foreground flex justify-between">
+                      <span>Profile:</span>
+                      <span className="text-foreground">gitbowl.zone.id/{chosenUsername}</span>
+                    </div>
+                    <div className="text-muted-foreground flex justify-between">
+                      <span>Git Remote:</span>
+                      <span className="text-primary truncate ml-2">
+                        https://gitbowl.zone.id/api/public/git/{chosenUsername}/&lt;repo&gt;.git
+                      </span>
+                    </div>
+                  </div>
+                )}
+
+                <Button
+                  type="submit"
+                  disabled={completingOnboarding || !chosenUsername || !!onboardingError}
+                  className="w-full h-9 text-xs font-semibold"
+                >
+                  {completingOnboarding
+                    ? "Finalizing account..."
+                    : "Complete Setup & Enter GitBowl"}
+                </Button>
+              </form>
+            </div>
+          ) : sent ? (
             <div className="space-y-4 text-center">
               <div className="mx-auto flex h-12 w-12 items-center justify-center rounded-full bg-primary/10 text-primary">
                 <Mail className="h-6 w-6" />

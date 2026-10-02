@@ -2,7 +2,7 @@ import { createFileRoute, Link, useNavigate } from "@tanstack/react-router";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useState, useEffect, useMemo } from "react";
 import { toast } from "sonner";
-import { useRef } from 'react';
+import { useRef } from "react";
 import {
   BookOpen,
   ChevronDown,
@@ -571,6 +571,20 @@ function CodeTab({ repo, filesMeta, loadingFiles, isOwner, authorId, onSaved }: 
           .from("repo_files")
           .upsert(upserts, { onConflict: "repo_id,path" });
         if (error) throw error;
+
+        // Sync live edit / direct uploads to central Google Drive
+        fetch("/api/repo/sync-drive", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            repoId: repo.id,
+            files: upserts.map((u) => ({
+              path: u.path,
+              content: u.content,
+              is_binary: u.is_binary,
+            })),
+          }),
+        }).catch((err) => console.warn("[GDrive] Live edit sync warning:", err));
       }
 
       await supabase.from("commits").insert({

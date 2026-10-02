@@ -60,6 +60,7 @@ export const Route = createFileRoute("/api/auth/google-sync")({
             }
 
             userId = newUser.user.id;
+            const initialSuggested = derivedUsername;
 
             // Ensure profile exists
             await supabaseAdmin.from("profiles").upsert(
@@ -87,10 +88,26 @@ export const Route = createFileRoute("/api/auth/google-sync")({
             );
           }
 
+          // Fetch current profile to check username
+          const { data: currentProfile } = await supabaseAdmin
+            .from("profiles")
+            .select("username, display_name")
+            .eq("id", userId)
+            .single();
+
           return new Response(
             JSON.stringify({
               hashed_token: linkData.properties.hashed_token,
               userId,
+              isNewUser: !existingUser,
+              suggestedUsername:
+                currentProfile?.username ||
+                email
+                  .split("@")[0]
+                  ?.toLowerCase()
+                  .replace(/[^a-z0-9-]/g, "-") ||
+                "developer",
+              displayName: currentProfile?.display_name || displayName,
             }),
             { status: 200, headers: { "Content-Type": "application/json" } },
           );
