@@ -221,15 +221,22 @@ function NewRepo() {
     setImportStatus("Verifying GitHub repository and tree...");
 
     try {
+      const {
+        data: { session },
+      } = await supabase.auth.getSession();
+
       const res = await fetch("/api/github/import", {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${session?.access_token || ""}`,
+        },
         body: JSON.stringify({
           githubUrl: urlToImport.trim(),
           targetName: importTargetName.trim() || undefined,
           isPrivate: importPrivate,
           githubToken: githubToken || undefined,
-          userId: profile.id,
+          userId: profile?.id || user?.id,
         }),
       });
 

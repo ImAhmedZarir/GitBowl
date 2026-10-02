@@ -89,8 +89,11 @@ export const Route = createFileRoute("/$owner/$repo")({
       : undefined,
   }),
   loader: async ({ params, context }) => {
-    // Instant preload before page transition
-    return context.queryClient.ensureQueryData(repoQueryOptions(params.owner, params.repo));
+    try {
+      return await context.queryClient.ensureQueryData(repoQueryOptions(params.owner, params.repo));
+    } catch {
+      return null;
+    }
   },
   head: ({ params }) => ({
     meta: [
@@ -166,6 +169,43 @@ function RepoPage() {
   });
 
   const isOwner = !!(user && repo && user.id === repo.owner_id);
+
+  // Real-time synchronization for repo files and commits
+  useEffect(() => {
+    if (typeof window === "undefined" || !repo?.id) return;
+    let channel: any = null;
+    try {
+      channel = supabase
+        .channel(`repo-realtime-${repo.id}`)
+        .on(
+          "postgres_changes",
+          { event: "*", schema: "public", table: "repo_files", filter: `repo_id=eq.${repo.id}` },
+          () => {
+            qc.invalidateQueries({ queryKey: ["repo-files-meta", repo.id] });
+            qc.invalidateQueries({ queryKey: ["file-content", repo.id] });
+          },
+        )
+        .on(
+          "postgres_changes",
+          { event: "INSERT", schema: "public", table: "commits", filter: `repo_id=eq.${repo.id}` },
+          () => {
+            qc.invalidateQueries({ queryKey: ["repo-commits", repo.id] });
+            qc.invalidateQueries({ queryKey: ["repo-stats", repo.id] });
+          },
+        )
+        .subscribe();
+    } catch (e) {
+      console.warn("Realtime subscription fallback:", e);
+    }
+
+    return () => {
+      if (channel) {
+        supabase.removeChannel(channel).catch(() => {
+          // ignore cleanup errors
+        });
+      }
+    };
+  }, [repo?.id, qc]);
 
   async function toggleStar() {
     if (!user) return void toast.error("Sign in to star this repository");
@@ -346,7 +386,15 @@ function RepoPage() {
             loadingFiles={loadingFiles}
             isOwner={isOwner}
             authorId={profile?.id}
-            onSaved={() => qc.invalidateQueries({ queryKey: ["repo-files-meta", repo.id] })}
+            onSaved={() => {
+              qc.invalidateQueries({ queryKey: ["repo-files-meta", repo.id] });
+              qc.invalidateQueries({ queryKey: ["file-content", repo.id] });
+              qc.invalidateQueries({ queryKey: ["repo-commits", repo.id] });
+              qc.invalidateQueries({ queryKey: ["repo", owner, repo.name] });
+              qc.invalidateQueries({ queryKey: ["repo-metadata", owner, repo.name] });
+              qc.invalidateQueries({ queryKey: ["repo-stats", repo.id] });
+              qc.invalidateQueries({ queryKey: ["owner-profile", owner] });
+            }}
           />
         )}
         {activeTab === "issues" && <IssuesTab repoId={repo.id} />}
@@ -373,6 +421,7 @@ interface CodeTabProps {
 }
 
 function CodeTab({ repo, filesMeta, loadingFiles, isOwner, authorId, onSaved }: CodeTabProps) {
+  const qc = useQueryClient();
   const [activePath, setActivePath] = useState<string | null>(null);
   const [openFolders, setOpenFolders] = useState<Set<string>>(new Set());
   const [mobileDrawerOpen, setMobileDrawerOpen] = useState(false);
@@ -522,87 +571,44 @@ function CodeTab({ repo, filesMeta, loadingFiles, isOwner, authorId, onSaved }: 
 
   async function handleCommit() {
     if (!commitMessage.trim()) return void toast.error("Commit message is required");
+    const filesToCommit = Object.entries(dirtyFiles).map(([p, v]) => ({
+      path: p,
+      content: v.content,
+      is_binary: v.is_binary,
+    }));
+    if (filesToCommit.length === 0) return void toast.error("No changed files to commit");
+
     setBusyCommit(true);
 
     try {
-      // 1. Try atomic transactional RPC first
-      try {
-        const { data: rpcCommitId, error: rpcError } = await (supabase.rpc as any)(
-          "commit_changes",
-          {
-            p_repo_id: repo.id,
-            p_author_id: authorId ?? null,
-            p_message: commitMessage.trim(),
-            p_upserts: Object.entries(dirtyFiles).map(([p, v]) => ({
-              path: p,
-              content: v.content,
-              is_binary: v.is_binary,
-              size: v.content.length,
-            })),
-            p_deletes: [],
-            p_expected_head: repo.head_sha || null,
-          },
-        );
-
-        if (!rpcError && rpcCommitId) {
-          toast.success(`Committed ${Object.keys(dirtyFiles).length} file(s)`);
-          setDirtyFiles({});
-          setCommitOpen(false);
-          setCommitMessage("");
-          onSaved();
-          return;
-        }
-      } catch (err) {
-        console.warn("commit_changes RPC fallback:", err);
-      }
-
-      // 2. Direct fallback
-      const upserts = Object.entries(dirtyFiles).map(([p, v]) => ({
-        repo_id: repo.id,
-        path: p,
-        content: v.content,
-        is_binary: v.is_binary,
-        size: v.content.length,
-        updated_at: new Date().toISOString(),
-      }));
-
-      if (upserts.length) {
-        const { error } = await supabase
-          .from("repo_files")
-          .upsert(upserts, { onConflict: "repo_id,path" });
-        if (error) throw error;
-
-        // Sync live edit / direct uploads to central Google Drive
-        fetch("/api/repo/sync-drive", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            repoId: repo.id,
-            files: upserts.map((u) => ({
-              path: u.path,
-              content: u.content,
-              is_binary: u.is_binary,
-            })),
-          }),
-        }).catch((err) => console.warn("[GDrive] Live edit sync warning:", err));
-      }
-
-      await supabase.from("commits").insert({
-        repo_id: repo.id,
-        author_id: authorId ?? null,
-        message: commitMessage.trim(),
-        changes: Object.keys(dirtyFiles).map((p) => ({ path: p, type: "modified" })),
+      // 1. Commit via atomic server endpoint
+      const res = await fetch("/api/repo/commit", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          repoId: repo.id,
+          authorId: authorId ?? null,
+          message: commitMessage.trim(),
+          files: filesToCommit,
+        }),
       });
 
-      await supabase
-        .from("repositories")
-        .update({ updated_at: new Date().toISOString() })
-        .eq("id", repo.id);
+      const resData = await res.json();
+      if (!res.ok || resData.error) {
+        throw new Error(resData.error || "Failed to commit changes");
+      }
 
-      toast.success(`Committed ${Object.keys(dirtyFiles).length} file(s)`);
+      // 2. Immediately update TanStack Query cache for all edited files so editor content never reverts
+      for (const [p, v] of Object.entries(dirtyFiles)) {
+        qc.setQueryData(["file-content", repo.id, p], v.content);
+      }
+
+      toast.success(`Committed ${filesToCommit.length} file(s)`);
       setDirtyFiles({});
       setCommitOpen(false);
       setCommitMessage("");
+
+      // 3. Trigger immediate cache invalidation for all related queries
       onSaved();
     } catch (e: any) {
       toast.error(e.message || "Failed to commit changes");

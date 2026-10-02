@@ -77,13 +77,22 @@ function ErrorComponent({ error, reset }: ErrorComponentProps) {
       <p className="mt-2 max-w-md text-sm text-muted-foreground">
         The bowl encountered an unexpected server or network issue.
       </p>
+      {error && (error as any).message && (
+        <p className="mt-2 max-w-md text-xs font-mono text-destructive/80 bg-destructive/10 px-3 py-1.5 rounded-md border border-destructive/20 mx-auto">
+          {(error as any).message}
+        </p>
+      )}
       <div className="mt-8 flex flex-wrap items-center justify-center gap-3">
         <button
           onClick={() => {
-            router.invalidate();
-            reset();
+            if (typeof window !== "undefined") {
+              window.location.reload();
+            } else {
+              router.invalidate();
+              reset();
+            }
           }}
-          className="inline-flex items-center gap-2 rounded-md bg-primary px-4 py-2 text-sm font-medium text-primary-foreground shadow-xs transition-colors hover:bg-primary/90"
+          className="inline-flex items-center gap-2 rounded-md bg-primary px-4 py-2 text-sm font-medium text-primary-foreground shadow-xs transition-colors hover:bg-primary/90 cursor-pointer"
         >
           <RefreshCw className="h-4 w-4" /> Try again
         </button>

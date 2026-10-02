@@ -827,7 +827,7 @@ function AuthPage() {
                       />
                     </div>
                     <p className="text-[10px] text-muted-foreground">
-                      Only lowercase letters, numbers, and dashes (e.g. zarir, code-bowl).
+                      Only lowercase letters, numbers, and dashes (e.g. dev, code-bowl).
                     </p>
                   </div>
                 )}

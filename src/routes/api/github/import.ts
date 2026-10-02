@@ -1,6 +1,7 @@
 import { createFileRoute } from "@tanstack/react-router";
 import JSZip from "jszip";
 import { supabaseAdmin } from "@/integrations/supabase/client.server";
+import { syncFilesToGoogleDrive } from "@/lib/gdrive.server";
 
 const BINARY_EXT =
   /\.(png|jpe?g|gif|webp|ico|pdf|zip|gz|tar|tgz|7z|rar|mp4|webm|mp3|wav|ogg|wasm|exe|dll|so|dylib|bin|iso|dmg|ttf|otf|woff2?|eot)$/i;
@@ -11,45 +12,64 @@ export const Route = createFileRoute("/api/github/import")({
       POST: async ({ request }) => {
         try {
           const body = await request.json();
-          const { githubUrl, targetName, isPrivate, githubToken, userId } = body;
+          let { githubUrl, targetName, isPrivate, githubToken, userId } = body;
+
+          // If userId not sent in body, try Bearer token
+          if (!userId) {
+            const authHeader = request.headers.get("authorization");
+            if (authHeader?.startsWith("Bearer ")) {
+              const {
+                data: { user },
+              } = await supabaseAdmin.auth.getUser(authHeader.slice(7));
+              userId = user?.id;
+            }
+          }
 
           if (!userId) {
-            return new Response(JSON.stringify({ error: "Authentication required" }), {
+            return new Response(JSON.stringify({ error: "Authentication required to import" }), {
               status: 401,
               headers: { "Content-Type": "application/json" },
             });
           }
 
-          // Parse owner and repo from URL or string
-          // e.g. "https://github.com/facebook/react" or "facebook/react"
-          const clean = (githubUrl || "")
-            .trim()
-            .replace(/^https?:\/\/github\.com\//, "")
-            .replace(/\.git$/, "")
-            .replace(/\/$/, "");
+          // Robust GitHub URL parsing:
+          // Handles:
+          // - https://github.com/facebook/react
+          // - https://github.com/facebook/react.git
+          // - git@github.com:facebook/react.git
+          // - github.com/facebook/react/tree/main
+          // - facebook/react
+          const rawInput = (githubUrl || "").trim();
+          const match = rawInput.match(
+            /(?:github\.com[:/]|git@github\.com:)?([a-zA-Z0-9_.-]+)\/([a-zA-Z0-9_.-]+)/,
+          );
 
-          const parts = clean.split("/");
-          if (parts.length < 2) {
+          if (!match || !match[1] || !match[2]) {
             return new Response(
-              JSON.stringify({ error: "Invalid GitHub repository. Format: owner/repo" }),
+              JSON.stringify({
+                error:
+                  "Invalid GitHub repository format. Example: owner/repo or https://github.com/owner/repo",
+              }),
               { status: 400, headers: { "Content-Type": "application/json" } },
             );
           }
 
-          const [ghOwner, ghRepo] = parts;
+          const ghOwner = match[1];
+          const ghRepo = match[2].replace(/\.git$/i, "");
+
           const repoName = (targetName || ghRepo)
             .trim()
             .toLowerCase()
             .replace(/[^a-z0-9_.-]/g, "-");
 
-          // 1. Fetch user profile for username
+          // 1. Fetch user profile
           const { data: profile } = await supabaseAdmin
             .from("profiles")
             .select("username")
             .eq("id", userId)
             .maybeSingle();
 
-          const username = profile?.username || "user";
+          const username = profile?.username || "developer";
 
           // 2. Check if repo already exists
           const { data: existing } = await supabaseAdmin
@@ -62,51 +82,72 @@ export const Route = createFileRoute("/api/github/import")({
           if (existing) {
             return new Response(
               JSON.stringify({
-                error: `Repository '${repoName}' already exists under your account.`,
+                error: `Repository '${repoName}' already exists under your account. Choose a different repository name.`,
               }),
               { status: 400, headers: { "Content-Type": "application/json" } },
             );
           }
 
-          // 3. Fetch zipball from GitHub API
-          const ghHeaders: Record<string, string> = {
-            "User-Agent": "GitBowl-Importer/1.0",
-            Accept: "application/vnd.github.v3+json",
-          };
+          // 3. Multi-strategy zipball download
+          const downloadUrls: string[] = [];
+
           if (githubToken) {
-            ghHeaders["Authorization"] = `token ${githubToken}`;
+            downloadUrls.push(`https://api.github.com/repos/${ghOwner}/${ghRepo}/zipball/HEAD`);
           }
 
-          const ghRes = await fetch(
+          downloadUrls.push(
+            `https://codeload.github.com/${ghOwner}/${ghRepo}/zip/refs/heads/main`,
+            `https://codeload.github.com/${ghOwner}/${ghRepo}/zip/refs/heads/master`,
             `https://api.github.com/repos/${ghOwner}/${ghRepo}/zipball/HEAD`,
-            { headers: ghHeaders, redirect: "follow" },
           );
 
-          if (!ghRes.ok) {
-            if (ghRes.status === 404) {
-              return new Response(
-                JSON.stringify({
-                  error: `GitHub repository ${ghOwner}/${ghRepo} not found or is private (require GitHub login).`,
-                }),
-                { status: 404, headers: { "Content-Type": "application/json" } },
-              );
+          let zipBuffer: ArrayBuffer | null = null;
+          let lastErrorMessage = "";
+
+          for (const url of downloadUrls) {
+            try {
+              const headers: Record<string, string> = {
+                "User-Agent": "GitBowl-Importer/2.0",
+              };
+              if (githubToken && url.includes("api.github.com")) {
+                headers["Authorization"] = `token ${githubToken}`;
+              }
+
+              const res = await fetch(url, { headers, redirect: "follow" });
+
+              if (res.ok) {
+                const buf = await res.arrayBuffer();
+                // Verify zip magic bytes: PK\x03\x04
+                if (buf.byteLength > 4) {
+                  const view = new Uint8Array(buf.slice(0, 4));
+                  if (view[0] === 0x50 && view[1] === 0x4b) {
+                    zipBuffer = buf;
+                    break;
+                  }
+                }
+              } else if (res.status === 404) {
+                lastErrorMessage = `GitHub repository '${ghOwner}/${ghRepo}' not found or is private (sign in with GitHub for private repos).`;
+              } else if (res.status === 403) {
+                lastErrorMessage = "GitHub API rate limit exceeded. Please sign in with GitHub.";
+              }
+            } catch (fetchErr: any) {
+              lastErrorMessage = fetchErr?.message || "Network error downloading repository";
             }
-            if (ghRes.status === 403 || ghRes.status === 401) {
-              return new Response(
-                JSON.stringify({
-                  error:
-                    "GitHub API rate limit or authentication required. Please sign in with GitHub.",
-                }),
-                { status: 403, headers: { "Content-Type": "application/json" } },
-              );
-            }
-            throw new Error(`GitHub returned HTTP ${ghRes.status}`);
           }
 
-          const arrayBuf = await ghRes.arrayBuffer();
-          const zip = await JSZip.loadAsync(arrayBuf);
+          if (!zipBuffer) {
+            return new Response(
+              JSON.stringify({
+                error:
+                  lastErrorMessage ||
+                  `Could not download repository '${ghOwner}/${ghRepo}'. Please verify the repository name.`,
+              }),
+              { status: 400, headers: { "Content-Type": "application/json" } },
+            );
+          }
 
-          // Find root prefix (GitHub zipballs contain a top-level dir like 'owner-repo-hash/')
+          // 4. Unpack zipball with JSZip
+          const zip = await JSZip.loadAsync(zipBuffer);
           const fileNames = Object.keys(zip.files);
           const firstDir = fileNames[0]?.split("/")[0] || "";
 
@@ -120,12 +161,14 @@ export const Route = createFileRoute("/api/github/import")({
           for (const [rawPath, zipEntry] of Object.entries(zip.files)) {
             if (zipEntry.dir) continue;
 
-            // Strip the top-level github root directory
             const cleanPath = rawPath.startsWith(`${firstDir}/`)
               ? rawPath.slice(firstDir.length + 1)
               : rawPath;
 
             if (!cleanPath || cleanPath.startsWith(".git/")) continue;
+
+            // Skip excessively large individual files (> 10MB in zip)
+            if ((zipEntry as any)._data?.uncompressedSize > 10 * 1024 * 1024) continue;
 
             const isBinary =
               BINARY_EXT.test(cleanPath) ||
@@ -150,7 +193,17 @@ export const Route = createFileRoute("/api/github/import")({
             });
           }
 
-          // 4. Create repository in GitBowl
+          if (filesToInsert.length === 0) {
+            // Default README if zip was empty
+            filesToInsert.push({
+              path: "README.md",
+              content: `# ${repoName}\n\nImported from GitHub ${ghOwner}/${ghRepo}.\n`,
+              is_binary: false,
+              size: 50,
+            });
+          }
+
+          // 5. Create repository in GitBowl
           const { data: newRepo, error: repoError } = await supabaseAdmin
             .from("repositories")
             .insert({
@@ -165,9 +218,9 @@ export const Route = createFileRoute("/api/github/import")({
 
           if (repoError) throw repoError;
 
-          // 5. Insert files in chunks of 100
-          for (let i = 0; i < filesToInsert.length; i += 100) {
-            const chunk = filesToInsert.slice(i, i + 100).map((f) => ({
+          // 6. Insert files in chunks of 50
+          for (let i = 0; i < filesToInsert.length; i += 50) {
+            const chunk = filesToInsert.slice(i, i + 50).map((f) => ({
               ...f,
               repo_id: newRepo.id,
               updated_at: new Date().toISOString(),
@@ -176,13 +229,18 @@ export const Route = createFileRoute("/api/github/import")({
             if (insertErr) throw insertErr;
           }
 
-          // 6. Create initial commit
+          // 7. Create initial commit
           await supabaseAdmin.from("commits").insert({
             repo_id: newRepo.id,
             author_id: userId,
             message: `Import from GitHub (${ghOwner}/${ghRepo})`,
             changes: filesToInsert.map((f) => ({ path: f.path, type: "added" })),
           });
+
+          // 8. Mirror imported files to Google Drive Central Storage (background safe)
+          syncFilesToGoogleDrive(username, newRepo.name, filesToInsert.slice(0, 100)).catch((e) =>
+            console.warn("[GDrive] Import sync notice:", e),
+          );
 
           return new Response(
             JSON.stringify({

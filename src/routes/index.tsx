@@ -359,6 +359,7 @@ function DashboardView() {
 /* -------------------------------------------------------------------------- */
 
 function LandingView() {
+  const { profile } = useAuth();
   const [terminalStep, setTerminalStep] = useState(0);
 
   // Typewriter sequence for hero terminal
@@ -495,8 +496,8 @@ function LandingView() {
                 {/* Terminal Body */}
                 <div className="p-4 font-mono text-xs text-foreground/90 space-y-2 h-[220px]">
                   <p className="text-muted-foreground">
-                    <span className="text-success">$</span> git clone
-                    https://gitbowl.zone.id/zarir/app.git
+                    <span className="text-success">$</span> git clone https://gitbowl.zone.id/
+                    {profile?.username || "developer"}/app.git
                   </p>
                   {terminalStep >= 1 && (
                     <p className="text-muted-foreground">
@@ -682,18 +683,7 @@ function LandingView() {
             {loadingTopRepos
               ? Array.from({ length: 6 }).map((_, i) => <RepoCardSkeleton key={i} />)
               : topRepos?.map((r: any) => (
-                  <RepoCard
-                    key={r.id}
-                    repo={{
-                      name: r.name,
-                      owner: r.profiles?.username || "dev",
-                      description: r.description,
-                      isPrivate: r.is_private,
-                      starsCount: r.stars_count,
-                      forksCount: r.forks_count,
-                      updatedAt: r.updated_at,
-                    }}
-                  />
+                  <RepoCard key={r.id} repo={r} owner={r.profiles?.username || "developer"} />
                 ))}
           </div>
         </div>

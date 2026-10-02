@@ -32,21 +32,26 @@ export interface RepoFileMeta {
 
 export const repoQueryOptions = (owner: string, repoName: string) =>
   queryOptions({
-    queryKey: ["repo-metadata", owner, repoName],
+    queryKey: ["repo-metadata", owner.toLowerCase(), repoName],
     queryFn: async () => {
-      // Fast single joined query with explicit foreign key
-      const { data, error } = await supabase
-        .from("repositories")
-        .select("*, profiles!repositories_owner_id_fkey!inner(id, username, display_name)")
-        .eq("name", repoName)
-        .eq("profiles.username", owner)
-        .maybeSingle();
+      try {
+        const cleanOwner = (owner || "").trim().toLowerCase();
+        const { data, error } = await supabase
+          .from("repositories")
+          .select("*, profiles!repositories_owner_id_fkey!inner(id, username, display_name)")
+          .eq("name", repoName)
+          .ilike("profiles.username", cleanOwner)
+          .maybeSingle();
 
-      if (error) {
-        console.warn("Repo fetch error:", error);
+        if (error) {
+          console.warn("Repo fetch warning:", error);
+          return null;
+        }
+        return (data as unknown as RepoMetadata) ?? null;
+      } catch (e) {
+        console.warn("Repo fetch exception:", e);
         return null;
       }
-      return (data as unknown as RepoMetadata) ?? null;
     },
     staleTime: 1000 * 60, // 60 seconds
   });
@@ -57,32 +62,39 @@ export const repoFilesMetaQueryOptions = (repoId: string | undefined) =>
     enabled: !!repoId,
     queryFn: async () => {
       if (!repoId) return [];
-      // SPEED CRITICAL: Never select `content` here!
-      const { data, error } = await supabase
-        .from("repo_files")
-        .select("id, repo_id, path, is_binary, size, updated_at")
-        .eq("repo_id", repoId)
-        .order("path", { ascending: true });
+      try {
+        const { data, error } = await supabase
+          .from("repo_files")
+          .select("id, repo_id, path, is_binary, size, updated_at")
+          .eq("repo_id", repoId)
+          .order("path", { ascending: true });
 
-      if (error) {
-        console.warn("Files meta fetch error:", error);
+        if (error) {
+          console.warn("Files meta fetch error:", error);
+          return [];
+        }
+        return (data as unknown as RepoFileMeta[]) ?? [];
+      } catch {
         return [];
       }
-      return (data as unknown as RepoFileMeta[]) ?? [];
     },
     staleTime: 1000 * 60,
   });
 
 export async function fetchFileContent(repoId: string, path: string): Promise<string> {
-  const { data, error } = await supabase
-    .from("repo_files")
-    .select("content, is_binary")
-    .eq("repo_id", repoId)
-    .eq("path", path)
-    .maybeSingle();
+  try {
+    const { data, error } = await supabase
+      .from("repo_files")
+      .select("content, is_binary")
+      .eq("repo_id", repoId)
+      .eq("path", path)
+      .maybeSingle();
 
-  if (error || !data) {
-    throw new Error(error?.message || "File not found");
+    if (error || !data) {
+      return "";
+    }
+    return data.content || "";
+  } catch {
+    return "";
   }
-  return data.content || "";
 }

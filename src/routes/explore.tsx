@@ -61,7 +61,7 @@ function Explore() {
 
         <div className="mt-6 grid gap-3 md:grid-cols-2 lg:grid-cols-3">
           {data?.map((repo) => (
-            <RepoCard key={repo.id} repo={repo} />
+            <RepoCard key={repo.id} repo={repo} owner={repo.profiles?.username} />
           ))}
         </div>
         {!isLoading && !data?.length ? (

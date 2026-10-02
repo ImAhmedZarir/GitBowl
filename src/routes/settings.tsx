@@ -1,5 +1,6 @@
 import { createFileRoute, Link, useNavigate } from "@tanstack/react-router";
 import { useState, useEffect } from "react";
+import { useQueryClient } from "@tanstack/react-query";
 import { useAuth } from "@/lib/auth";
 import { Header } from "@/components/Header";
 import { Footer } from "@/components/Footer";
@@ -48,6 +49,7 @@ type TokenItem = {
 };
 
 function SettingsPage() {
+  const qc = useQueryClient();
   const { user, profile, loading } = useAuth();
   const navigate = useNavigate();
   const search = Route.useSearch();
@@ -59,6 +61,8 @@ function SettingsPage() {
   const [bio, setBio] = useState("");
   const [location, setLocation] = useState("");
   const [website, setWebsite] = useState("");
+  const [avatarUrl, setAvatarUrl] = useState("");
+  const [pronouns, setPronouns] = useState("");
   const [savingProfile, setSavingProfile] = useState(false);
 
   // Username validation
@@ -98,8 +102,13 @@ function SettingsPage() {
       setDisplayName(profile.display_name || "");
       setUsername(profile.username || "");
       setBio(profile.bio || "");
+      const meta = (user as any)?.user_metadata || {};
+      setAvatarUrl((profile as any).avatar_url || meta.avatar_url || "");
+      setLocation(meta.location || "");
+      setWebsite(meta.website || "");
+      setPronouns(meta.pronouns || "");
     }
-  }, [profile]);
+  }, [profile, user]);
 
   // Redirect if unauthenticated
   useEffect(() => {
@@ -223,6 +232,10 @@ function SettingsPage() {
           displayName,
           username: username.trim().toLowerCase(),
           bio,
+          avatarUrl: avatarUrl.trim() || undefined,
+          website: website.trim() || undefined,
+          location: location.trim() || undefined,
+          pronouns: pronouns.trim() || undefined,
         }),
       });
 
@@ -231,9 +244,17 @@ function SettingsPage() {
         throw new Error(data.error || "Failed to update profile");
       }
 
+      await supabase.auth.refreshSession();
+      qc.invalidateQueries({ queryKey: ["auth"] });
+      qc.invalidateQueries({ queryKey: ["owner-profile"] });
+      qc.invalidateQueries({ queryKey: ["landing-top-repos"] });
+
       toast.success("Profile updated successfully!");
-      // Reload page to refresh auth state
-      window.location.reload();
+      if (typeof window !== "undefined") {
+        setTimeout(() => {
+          window.location.reload();
+        }, 500);
+      }
     } catch (err: any) {
       toast.error(err.message || "Error updating profile");
     } finally {
@@ -455,12 +476,18 @@ function SettingsPage() {
               <div className="space-y-6">
                 <div className="border border-border rounded-xl bg-card p-6 shadow-xs">
                   <div className="flex items-center gap-4 pb-6 border-b border-border">
-                    <div className="h-16 w-16 rounded-full bg-primary/20 border border-primary/30 flex items-center justify-center text-lg font-bold text-primary">
-                      {currentUsername.slice(0, 2).toUpperCase()}
+                    <div className="h-16 w-16 rounded-full overflow-hidden border border-border/80 bg-primary/20 flex items-center justify-center shrink-0">
+                      {avatarUrl ? (
+                        <img src={avatarUrl} alt="" className="h-full w-full object-cover" />
+                      ) : (
+                        <span className="text-lg font-bold text-primary">
+                          {currentUsername.slice(0, 2).toUpperCase()}
+                        </span>
+                      )}
                     </div>
                     <div>
                       <h2 className="text-base font-semibold text-foreground">
-                        {profile?.display_name || currentUsername}
+                        {displayName || currentUsername}
                       </h2>
                       <p className="text-xs text-muted-foreground">@{currentUsername}</p>
                       <p className="text-[11px] text-muted-foreground mt-1">
@@ -471,16 +498,47 @@ function SettingsPage() {
 
                   <form onSubmit={handleSaveProfile} className="mt-6 space-y-4">
                     <div className="space-y-1.5">
-                      <Label htmlFor="display_name" className="text-xs font-medium">
-                        Display Name
+                      <Label htmlFor="avatar_url" className="text-xs font-medium">
+                        Profile Image / Avatar URL
                       </Label>
                       <Input
-                        id="display_name"
-                        value={displayName}
-                        onChange={(e) => setDisplayName(e.target.value)}
-                        placeholder="Your full name"
-                        className="text-xs h-9"
+                        id="avatar_url"
+                        value={avatarUrl}
+                        onChange={(e) => setAvatarUrl(e.target.value)}
+                        placeholder="https://example.com/avatar.jpg or https://github.com/username.png"
+                        className="text-xs h-9 font-mono"
                       />
+                      <p className="text-[11px] text-muted-foreground">
+                        Paste a direct image URL (e.g. from GitHub, Gravatar, Imgur, or Unsplash).
+                      </p>
+                    </div>
+
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                      <div className="space-y-1.5">
+                        <Label htmlFor="display_name" className="text-xs font-medium">
+                          Display Name
+                        </Label>
+                        <Input
+                          id="display_name"
+                          value={displayName}
+                          onChange={(e) => setDisplayName(e.target.value)}
+                          placeholder="Your full name"
+                          className="text-xs h-9"
+                        />
+                      </div>
+
+                      <div className="space-y-1.5">
+                        <Label htmlFor="pronouns" className="text-xs font-medium">
+                          Pronouns
+                        </Label>
+                        <Input
+                          id="pronouns"
+                          value={pronouns}
+                          onChange={(e) => setPronouns(e.target.value)}
+                          placeholder="e.g. he/him, she/her, they/them"
+                          className="text-xs h-9"
+                        />
+                      </div>
                     </div>
 
                     <div className="space-y-1.5">
