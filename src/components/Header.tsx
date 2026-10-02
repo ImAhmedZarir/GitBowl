@@ -340,17 +340,6 @@ export function Header() {
                       </Link>
                     </DropdownMenuItem>
 
-                    <DropdownMenuItem asChild>
-                      <Link
-                        to="/settings"
-                        search={{ tab: "storage" }}
-                        className="gap-2.5 text-xs cursor-pointer"
-                      >
-                        <HardDrive className="h-4 w-4 text-muted-foreground" /> Cloud Storage
-                        (Drive)
-                      </Link>
-                    </DropdownMenuItem>
-
                     <DropdownMenuSeparator className="my-1.5" />
 
                     {/* Settings Section (GitHub Image 1) */}

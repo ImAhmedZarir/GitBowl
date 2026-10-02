@@ -1,0 +1,51 @@
+// src/lib/reserved-usernames.ts
+// Comprehensive list of reserved system handles that cannot be registered by users.
+
+export const RESERVED_USERNAMES = new Set([
+  "about",
+  "admin",
+  "api",
+  "assets",
+  "auth",
+  "blog",
+  "dashboard",
+  "docs",
+  "explore",
+  "faq",
+  "favicon",
+  "git",
+  "gitbowl",
+  "help",
+  "internal",
+  "issues",
+  "login",
+  "logout",
+  "mail",
+  "marketplace",
+  "new",
+  "notifications",
+  "orgs",
+  "organizations",
+  "pricing",
+  "privacy",
+  "public",
+  "pulls",
+  "raw",
+  "robots",
+  "search",
+  "security",
+  "settings",
+  "sitemap",
+  "static",
+  "status",
+  "support",
+  "terms",
+  "tos",
+  "user",
+  "users",
+  "www",
+]);
+
+export function isReservedUsername(username: string): boolean {
+  return RESERVED_USERNAMES.has(username.trim().toLowerCase());
+}

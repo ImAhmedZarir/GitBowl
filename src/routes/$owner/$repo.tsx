@@ -139,7 +139,7 @@ function RepoPage() {
   function switchTab(t: Tab) {
     setActiveTab(t);
     navigate({
-      search: t === "code" ? {} : { tab: t },
+      search: (prev) => ({ ...prev, tab: t === "code" ? undefined : t }),
       replace: true,
     });
   }
@@ -276,6 +276,7 @@ function RepoPage() {
               <Link
                 to="/$owner"
                 params={{ owner }}
+                search={{ tab: "overview" }}
                 className="text-primary hover:underline truncate"
               >
                 {owner}
@@ -581,15 +582,21 @@ function CodeTab({ repo, filesMeta, loadingFiles, isOwner, authorId, onSaved }: 
     setBusyCommit(true);
 
     try {
-      // 1. Commit via atomic server endpoint
+      // 1. Commit via authenticated atomic server endpoint
+      const { data: sessionData } = await supabase.auth.getSession();
+      const token = sessionData.session?.access_token;
+
       const res = await fetch("/api/repo/commit", {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: token ? `Bearer ${token}` : "",
+        },
         body: JSON.stringify({
           repoId: repo.id,
-          authorId: authorId ?? null,
           message: commitMessage.trim(),
           files: filesToCommit,
+          expectedHeadSha: repo.head_sha || undefined,
         }),
       });
 
@@ -1267,9 +1274,11 @@ function IssuesTab({ repoId }: { repoId: string }) {
     if (!title.trim()) return void toast.error("Title is required");
     setBusy(true);
     try {
+      const nextNum = (issues?.length ?? 0) + 1;
       await supabase.from("issues").insert({
         repo_id: repoId,
         author_id: user?.id,
+        number: nextNum,
         title: title.trim(),
         body: body.trim(),
         state: "open",
@@ -1390,7 +1399,7 @@ function SettingsTab({ repo, owner }: { repo: any; owner: string }) {
       const { error } = await supabase.from("repositories").delete().eq("id", repo.id);
       if (error) throw error;
       toast.success("Repository deleted");
-      navigate({ to: "/$owner", params: { owner } });
+      navigate({ to: "/$owner", params: { owner }, search: { tab: "overview" } });
     } catch (e: any) {
       toast.error(e.message || "Failed to delete repository");
     } finally {
@@ -1467,21 +1476,22 @@ function TokenManager() {
   const [generatedToken, setGeneratedToken] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
 
-  useEffect(() => {
-    async function loadTokens() {
-      if (!session?.access_token) return;
-      try {
-        const res = await fetch("/api/auth/tokens", {
-          headers: { Authorization: `Bearer ${session.access_token}` },
-        });
-        const data = await res.json();
-        setTokens(data.tokens || []);
-      } catch (err) {
-        console.warn("Could not load tokens:", err);
-      } finally {
-        setLoading(false);
-      }
+  async function loadTokens() {
+    if (!session?.access_token) return;
+    try {
+      const res = await fetch("/api/auth/tokens", {
+        headers: { Authorization: `Bearer ${session.access_token}` },
+      });
+      const data = await res.json();
+      setTokens(data.tokens || []);
+    } catch (err) {
+      console.warn("Could not load tokens:", err);
+    } finally {
+      setLoading(false);
     }
+  }
+
+  useEffect(() => {
     void loadTokens();
   }, [session?.access_token]);
 

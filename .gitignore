@@ -6,3 +6,9 @@ coverage/
 *.log
 .env*
 !.env.example
+*service-account*.json
+google-service-account.json
+.output/
+.wrangler/
+.lovable/
+.tanstack/

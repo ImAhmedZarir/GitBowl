@@ -327,6 +327,139 @@ export type Database = {
           },
         ];
       };
+      personal_access_tokens: {
+        Row: {
+          created_at: string;
+          expires_at: string | null;
+          id: string;
+          last_used_at: string | null;
+          name: string;
+          scopes: string[];
+          token_hash: string;
+          token_prefix: string;
+          user_id: string;
+        };
+        Insert: {
+          created_at?: string;
+          expires_at?: string | null;
+          id?: string;
+          last_used_at?: string | null;
+          name: string;
+          scopes?: string[];
+          token_hash: string;
+          token_prefix: string;
+          user_id: string;
+        };
+        Update: {
+          created_at?: string;
+          expires_at?: string | null;
+          id?: string;
+          last_used_at?: string | null;
+          name?: string;
+          scopes?: string[];
+          token_hash?: string;
+          token_prefix?: string;
+          user_id?: string;
+        };
+        Relationships: [
+          {
+            foreignKeyName: "pat_user_id_fkey";
+            columns: ["user_id"];
+            isOneToOne: false;
+            referencedRelation: "profiles";
+            referencedColumns: ["id"];
+          },
+        ];
+      };
+      follows: {
+        Row: {
+          created_at: string;
+          followee_id: string;
+          follower_id: string;
+        };
+        Insert: {
+          created_at?: string;
+          followee_id: string;
+          follower_id: string;
+        };
+        Update: {
+          created_at?: string;
+          followee_id?: string;
+          follower_id?: string;
+        };
+        Relationships: [
+          {
+            foreignKeyName: "follows_follower_id_fkey";
+            columns: ["follower_id"];
+            isOneToOne: false;
+            referencedRelation: "profiles";
+            referencedColumns: ["id"];
+          },
+          {
+            foreignKeyName: "follows_followee_id_fkey";
+            columns: ["followee_id"];
+            isOneToOne: false;
+            referencedRelation: "profiles";
+            referencedColumns: ["id"];
+          },
+        ];
+      };
+      storage_backups: {
+        Row: {
+          attempts: number;
+          completed_at: string | null;
+          created_at: string;
+          drive_file_id: string | null;
+          id: string;
+          kind: string;
+          last_error: string | null;
+          md5: string | null;
+          next_attempt_at: string;
+          repo_id: string;
+          sha: string;
+          size: number;
+          status: string;
+        };
+        Insert: {
+          attempts?: number;
+          completed_at?: string | null;
+          created_at?: string;
+          drive_file_id?: string | null;
+          id?: string;
+          kind: string;
+          last_error?: string | null;
+          md5?: string | null;
+          next_attempt_at?: string;
+          repo_id: string;
+          sha: string;
+          size?: number;
+          status?: string;
+        };
+        Update: {
+          attempts?: number;
+          completed_at?: string | null;
+          created_at?: string;
+          drive_file_id?: string | null;
+          id?: string;
+          kind?: string;
+          last_error?: string | null;
+          md5?: string | null;
+          next_attempt_at?: string;
+          repo_id?: string;
+          sha?: string;
+          size?: number;
+          status?: string;
+        };
+        Relationships: [
+          {
+            foreignKeyName: "storage_backups_repo_id_fkey";
+            columns: ["repo_id"];
+            isOneToOne: false;
+            referencedRelation: "repositories";
+            referencedColumns: ["id"];
+          },
+        ];
+      };
     };
     Views: {
       [_ in never]: never;

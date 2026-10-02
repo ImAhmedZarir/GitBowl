@@ -133,8 +133,9 @@ function detectCommonRoot(names: string[]) {
 export async function downloadRepoZip(repoName: string, files: RepoFile[]) {
   const zip = new JSZip();
   for (const f of files) {
-    if (f.is_binary) zip.file(f.path, f.content, { base64: true });
-    else zip.file(f.path, f.content);
+    const content = f.content ?? "";
+    if (f.is_binary) zip.file(f.path, content, { base64: true });
+    else zip.file(f.path, content);
   }
   const blob = await zip.generateAsync({ type: "blob" });
   const url = URL.createObjectURL(blob);
@@ -203,7 +204,11 @@ export async function copyRepository(opts: {
   });
 
   if (opts.isFork) {
-    await supabase.rpc("increment_fork_count", { _repo_id: opts.sourceRepoId }).catch(() => {});
+    try {
+      await supabase.rpc("increment_fork_count", { _repo_id: opts.sourceRepoId });
+    } catch {
+      // ignore count increment error
+    }
   }
 
   return repo;

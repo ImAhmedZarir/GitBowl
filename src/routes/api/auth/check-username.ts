@@ -1,30 +1,6 @@
 import { createFileRoute } from "@tanstack/react-router";
 import { supabaseAdmin } from "@/integrations/supabase/client.server";
-
-const RESERVED_USERNAMES = new Set([
-  "admin",
-  "api",
-  "auth",
-  "dashboard",
-  "explore",
-  "gitbowl",
-  "help",
-  "issues",
-  "login",
-  "logout",
-  "new",
-  "privacy",
-  "public",
-  "pulls",
-  "settings",
-  "signup",
-  "static",
-  "support",
-  "terms",
-  "tos",
-  "user",
-  "users",
-]);
+import { isReservedUsername } from "@/lib/reserved-usernames";
 
 export const Route = createFileRoute("/api/auth/check-username")({
   server: {
@@ -84,7 +60,7 @@ export const Route = createFileRoute("/api/auth/check-username")({
             );
           }
 
-          if (RESERVED_USERNAMES.has(username)) {
+          if (isReservedUsername(username)) {
             return new Response(
               JSON.stringify({
                 available: false,

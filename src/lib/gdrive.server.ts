@@ -6,11 +6,18 @@ import fs from "fs";
 import path from "path";
 import { JWT } from "google-auth-library";
 
+function escapeDriveQuery(val: string): string {
+  return (val || "").replace(/\\/g, "\\\\").replace(/'/g, "\\'");
+}
+
 // Load Service Account Credentials
 function loadCredentials() {
-  const envEmail = process.env["GDRIVE_CLIENT_EMAIL"];
-  const envKey = process.env["GDRIVE_PRIVATE_KEY"];
-  const rootId = process.env["GDRIVE_ROOT_FOLDER_ID"] || "1kmpvKOO6Naofeq5V2je1GBxVvHl6Gwos";
+  const envEmail = process.env["GDRIVE_CLIENT_EMAIL"] || "";
+  const envKey = process.env["GDRIVE_PRIVATE_KEY"] || "";
+  const rootId =
+    process.env["GDRIVE_SHARED_DRIVE_ID"] ||
+    process.env["GDRIVE_ROOT_FOLDER_ID"] ||
+    "";
 
   if (envEmail && envKey) {
     return {
@@ -26,18 +33,18 @@ function loadCredentials() {
     try {
       const data = JSON.parse(fs.readFileSync(filePath, "utf8"));
       return {
-        client_email: data.client_email,
-        private_key: data.private_key,
+        client_email: data.client_email || envEmail,
+        private_key: data.private_key || envKey,
         root_folder_id: data.root_folder_id || rootId,
       };
     } catch (e) {
-      console.error("[GDrive] Error parsing google-service-account.json:", e);
+      console.error("[GDrive] Error parsing service account file:", e);
     }
   }
 
   return {
-    client_email: "gitbowl-store@gitbowl.iam.gserviceaccount.com",
-    private_key: "",
+    client_email: envEmail,
+    private_key: envKey,
     root_folder_id: rootId,
   };
 }
@@ -114,7 +121,7 @@ async function ensureFolderPath(folderPath: string): Promise<string> {
     }
 
     // Query Google Drive to see if this child folder exists under currentParentId
-    const q = `'${currentParentId}' in parents and name = '${part}' and mimeType = 'application/vnd.google-apps.folder' and trashed = false`;
+    const q = `'${escapeDriveQuery(currentParentId)}' in parents and name = '${escapeDriveQuery(part)}' and mimeType = 'application/vnd.google-apps.folder' and trashed = false`;
     const searchRes = await fetch(
       `https://www.googleapis.com/drive/v3/files?q=${encodeURIComponent(q)}&fields=files(id,name)&supportsAllDrives=true&includeItemsFromAllDrives=true`,
       {
@@ -180,7 +187,7 @@ export async function putFile(
   const token = await getAccessToken();
 
   // Check if file already exists in this folder
-  const q = `'${parentFolderId}' in parents and name = '${fileName}' and trashed = false`;
+  const q = `'${escapeDriveQuery(parentFolderId)}' in parents and name = '${escapeDriveQuery(fileName)}' and trashed = false`;
   const existingRes = await fetch(
     `https://www.googleapis.com/drive/v3/files?q=${encodeURIComponent(q)}&fields=files(id)&supportsAllDrives=true&includeItemsFromAllDrives=true`,
     {
@@ -304,7 +311,7 @@ export async function getFile(key: string): Promise<Buffer | null> {
   const parentFolderId = await ensureFolderPath(folderPath);
   const token = await getAccessToken();
 
-  const q = `'${parentFolderId}' in parents and name = '${fileName}' and trashed = false`;
+  const q = `'${escapeDriveQuery(parentFolderId)}' in parents and name = '${escapeDriveQuery(fileName)}' and trashed = false`;
   const searchRes = await fetch(
     `https://www.googleapis.com/drive/v3/files?q=${encodeURIComponent(q)}&fields=files(id,name,size,mimeType,appProperties)&supportsAllDrives=true&includeItemsFromAllDrives=true`,
     {
@@ -320,8 +327,8 @@ export async function getFile(key: string): Promise<Buffer | null> {
   if (!file?.id) return null;
 
   // Check if content was stored in appProperties
-  if (file.appProperties?.gitbowl_content) {
-    return Buffer.from(file.appProperties.gitbowl_content, "base64");
+  if (file.appProperties?.["gitbowl_content"]) {
+    return Buffer.from(file.appProperties["gitbowl_content"], "base64");
   }
 
   // Otherwise download media
@@ -349,7 +356,7 @@ export async function deleteFile(key: string): Promise<void> {
   const parentFolderId = await ensureFolderPath(folderPath);
   const token = await getAccessToken();
 
-  const q = `'${parentFolderId}' in parents and name = '${fileName}' and trashed = false`;
+  const q = `'${escapeDriveQuery(parentFolderId)}' in parents and name = '${escapeDriveQuery(fileName)}' and trashed = false`;
   const searchRes = await fetch(
     `https://www.googleapis.com/drive/v3/files?q=${encodeURIComponent(q)}&fields=files(id)&supportsAllDrives=true&includeItemsFromAllDrives=true`,
     {
@@ -376,7 +383,7 @@ export async function deleteRepoFiles(repoId: string): Promise<void> {
   const parentFolderId = await ensureFolderPath("repos");
   const token = await getAccessToken();
 
-  const q = `'${parentFolderId}' in parents and name = '${repoId}' and mimeType = 'application/vnd.google-apps.folder' and trashed = false`;
+  const q = `'${escapeDriveQuery(parentFolderId)}' in parents and name = '${escapeDriveQuery(repoId)}' and mimeType = 'application/vnd.google-apps.folder' and trashed = false`;
   const searchRes = await fetch(
     `https://www.googleapis.com/drive/v3/files?q=${encodeURIComponent(q)}&fields=files(id)&supportsAllDrives=true&includeItemsFromAllDrives=true`,
     {

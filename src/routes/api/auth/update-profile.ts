@@ -1,5 +1,6 @@
 import { createFileRoute } from "@tanstack/react-router";
 import { supabaseAdmin } from "@/integrations/supabase/client.server";
+import { isReservedUsername } from "@/lib/reserved-usernames";
 
 async function getAuthenticatedUser(request: Request) {
   const authHeader = request.headers.get("authorization");
@@ -47,6 +48,13 @@ export const Route = createFileRoute("/api/auth/update-profile")({
               );
             }
 
+            if (isReservedUsername(newUsername)) {
+              return new Response(
+                JSON.stringify({ error: `'${newUsername}' is a reserved system handle` }),
+                { status: 400, headers: { "Content-Type": "application/json" } },
+              );
+            }
+
             // Check availability if changing
             const { data: existing } = await supabaseAdmin
               .from("profiles")
@@ -90,15 +98,15 @@ export const Route = createFileRoute("/api/auth/update-profile")({
           const newMetadata: Record<string, any> = {
             ...(user.user_metadata || {}),
           };
-          if (newUsername) newMetadata.username = newUsername;
+          if (newUsername) newMetadata["username"] = newUsername;
           if (displayName) {
-            newMetadata.name = displayName;
-            newMetadata.full_name = displayName;
+            newMetadata["name"] = displayName;
+            newMetadata["full_name"] = displayName;
           }
-          if (avatarUrl !== undefined) newMetadata.avatar_url = avatarUrl;
-          if (website !== undefined) newMetadata.website = website;
-          if (location !== undefined) newMetadata.location = location;
-          if (pronouns !== undefined) newMetadata.pronouns = pronouns;
+          if (avatarUrl !== undefined) newMetadata["avatar_url"] = avatarUrl;
+          if (website !== undefined) newMetadata["website"] = website;
+          if (location !== undefined) newMetadata["location"] = location;
+          if (pronouns !== undefined) newMetadata["pronouns"] = pronouns;
 
           await supabaseAdmin.auth.admin.updateUserById(user.id, {
             user_metadata: newMetadata,
@@ -109,10 +117,10 @@ export const Route = createFileRoute("/api/auth/update-profile")({
               success: true,
               profile: {
                 ...updated,
-                avatar_url: newMetadata.avatar_url || null,
-                website: newMetadata.website || null,
-                location: newMetadata.location || null,
-                pronouns: newMetadata.pronouns || null,
+                avatar_url: newMetadata["avatar_url"] || null,
+                website: newMetadata["website"] || null,
+                location: newMetadata["location"] || null,
+                pronouns: newMetadata["pronouns"] || null,
               },
             }),
             { status: 200, headers: { "Content-Type": "application/json" } },

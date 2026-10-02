@@ -25,8 +25,8 @@ import {
 } from "lucide-react";
 
 export const Route = createFileRoute("/$owner/")({
-  validateSearch: (search: Record<string, unknown>) => ({
-    tab: (search.tab as string) || "overview",
+  validateSearch: (search: Record<string, unknown>): { tab?: string } => ({
+    tab: (search["tab"] as string) || "overview",
   }),
   head: ({ params }) => ({
     meta: [
@@ -75,13 +75,17 @@ function computeRealContributionWeeks(
   for (const c of commits) {
     if (!c.created_at) continue;
     const dStr = c.created_at.split("T")[0];
-    countMap[dStr] = (countMap[dStr] || 0) + 1;
+    if (dStr) {
+      countMap[dStr] = (countMap[dStr] || 0) + 1;
+    }
   }
 
   for (const r of repos) {
     if (!r.created_at) continue;
     const dStr = r.created_at.split("T")[0];
-    countMap[dStr] = (countMap[dStr] || 0) + 1;
+    if (dStr) {
+      countMap[dStr] = (countMap[dStr] || 0) + 1;
+    }
   }
 
   const baseDate = new Date(selectedYear, 8, 30); // End of September of selected year
@@ -95,9 +99,9 @@ function computeRealContributionWeeks(
     for (let d = 0; d < 7; d++) {
       const currentDate = new Date(baseDate);
       currentDate.setDate(baseDate.getDate() + (w * 7 + d));
-      const dateStr = currentDate.toISOString().split("T")[0];
+      const dateStr = currentDate.toISOString().split("T")[0] || "";
 
-      const count = countMap[dateStr] || 0;
+      const count = (dateStr ? countMap[dateStr] : 0) || 0;
       totalCount += count;
 
       // Realistic intensity level based on commit count

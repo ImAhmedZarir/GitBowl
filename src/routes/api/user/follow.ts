@@ -4,7 +4,9 @@ import { supabaseAdmin } from "@/integrations/supabase/client.server";
 async function getAuthenticatedUser(request: Request) {
   const authHeader = request.headers.get("authorization");
   if (!authHeader?.startsWith("Bearer ")) return null;
-  const token = authHeader.slice(7);
+  const token = authHeader.slice(7).trim();
+  if (!token) return null;
+
   const {
     data: { user },
     error,
@@ -29,47 +31,74 @@ export const Route = createFileRoute("/api/user/follow")({
         }
 
         try {
-          const { data: usersData } = await supabaseAdmin.auth.admin.listUsers({ perPage: 1000 });
-          const allUsers = usersData?.users || [];
+          // 1. Query followers count from follows table
+          const [followersRes, followingRes, isFollowingRes, profileRes] = await Promise.all([
+            supabaseAdmin
+              .from("follows")
+              .select("*", { count: "exact", head: true })
+              .eq("followee_id", targetUserId),
+            supabaseAdmin
+              .from("follows")
+              .select("*", { count: "exact", head: true })
+              .eq("follower_id", targetUserId),
+            currentUser
+              ? supabaseAdmin
+                  .from("follows")
+                  .select("created_at")
+                  .eq("follower_id", currentUser.id)
+                  .eq("followee_id", targetUserId)
+                  .maybeSingle()
+              : Promise.resolve({ data: null, error: null }),
+            supabaseAdmin
+              .from("profiles")
+              .select("id, username, display_name, bio")
+              .eq("id", targetUserId)
+              .maybeSingle(),
+          ]);
 
-          // Target user's following list
-          const targetUser = allUsers.find((u) => u.id === targetUserId);
-          const targetFollowing: string[] = targetUser?.user_metadata?.following || [];
-
-          // Count how many users have targetUserId in their following array
-          let followersCount = 0;
-          for (const u of allUsers) {
-            const fList: string[] = u.user_metadata?.following || [];
-            if (fList.includes(targetUserId)) {
-              followersCount++;
-            }
+          // Fetch user metadata from auth.users (for avatar_url, location, etc.)
+          let userMeta: Record<string, any> = {};
+          try {
+            const { data: authUserData } = await supabaseAdmin.auth.admin.getUserById(targetUserId);
+            userMeta = authUserData.user?.user_metadata || {};
+          } catch {
+            // Ignore if auth user lookup fails
           }
 
-          // Check if current user is following target user
-          let isFollowing = false;
-          if (currentUser) {
-            const currentFollowing: string[] = currentUser.user_metadata?.following || [];
-            isFollowing = currentFollowing.includes(targetUserId);
-          }
+          const followersCount = followersRes.count ?? 0;
+          const followingCount = followingRes.count ?? 0;
+          const isFollowing = Boolean(isFollowingRes.data);
 
           return new Response(
             JSON.stringify({
               followersCount,
-              followingCount: targetFollowing.length,
+              followingCount,
               isFollowing,
               metadata: {
-                avatar_url: targetUser?.user_metadata?.avatar_url || null,
-                website: targetUser?.user_metadata?.website || null,
-                location: targetUser?.user_metadata?.location || null,
-                pronouns: targetUser?.user_metadata?.pronouns || null,
+                avatar_url: (profileRes.data as any)?.avatar_url || userMeta["avatar_url"] || null,
+                website: userMeta["website"] || null,
+                location: userMeta["location"] || null,
+                pronouns: userMeta["pronouns"] || null,
               },
             }),
-            { status: 200, headers: { "Content-Type": "application/json" } },
+            {
+              status: 200,
+              headers: { "Content-Type": "application/json" },
+            },
           );
-        } catch (e: any) {
+        } catch (err: any) {
+          console.error("[Follow API] Error:", err);
           return new Response(
-            JSON.stringify({ followersCount: 0, followingCount: 0, isFollowing: false }),
-            { status: 200, headers: { "Content-Type": "application/json" } },
+            JSON.stringify({
+              followersCount: 0,
+              followingCount: 0,
+              isFollowing: false,
+              metadata: {},
+            }),
+            {
+              status: 200,
+              headers: { "Content-Type": "application/json" },
+            },
           );
         }
       },
@@ -77,7 +106,7 @@ export const Route = createFileRoute("/api/user/follow")({
       POST: async ({ request }) => {
         const currentUser = await getAuthenticatedUser(request);
         if (!currentUser) {
-          return new Response(JSON.stringify({ error: "Unauthorized" }), {
+          return new Response(JSON.stringify({ error: "Authentication required" }), {
             status: 401,
             headers: { "Content-Type": "application/json" },
           });
@@ -95,72 +124,45 @@ export const Route = createFileRoute("/api/user/follow")({
           }
 
           if (targetUserId === currentUser.id) {
-            return new Response(JSON.stringify({ error: "Cannot follow yourself" }), {
+            return new Response(JSON.stringify({ error: "You cannot follow yourself" }), {
               status: 400,
               headers: { "Content-Type": "application/json" },
             });
           }
 
-          const currentFollowing: string[] = Array.isArray(currentUser.user_metadata?.following)
-            ? [...currentUser.user_metadata.following]
-            : [];
-
-          let isFollowing = false;
-
           if (action === "follow") {
-            if (!currentFollowing.includes(targetUserId)) {
-              currentFollowing.push(targetUserId);
+            const { error } = await supabaseAdmin.from("follows").insert({
+              follower_id: currentUser.id,
+              followee_id: targetUserId,
+              created_at: new Date().toISOString(),
+            });
+
+            if (error && error.code !== "23505") {
+              // 23505 is unique violation, which is fine
+              throw error;
             }
-            isFollowing = true;
-          } else if (action === "unfollow") {
-            const idx = currentFollowing.indexOf(targetUserId);
-            if (idx > -1) {
-              currentFollowing.splice(idx, 1);
-            }
-            isFollowing = false;
+
+            return new Response(JSON.stringify({ success: true, isFollowing: true }), {
+              status: 200,
+              headers: { "Content-Type": "application/json" },
+            });
           } else {
-            // Toggle
-            const idx = currentFollowing.indexOf(targetUserId);
-            if (idx > -1) {
-              currentFollowing.splice(idx, 1);
-              isFollowing = false;
-            } else {
-              currentFollowing.push(targetUserId);
-              isFollowing = true;
-            }
+            // Unfollow
+            const { error } = await supabaseAdmin
+              .from("follows")
+              .delete()
+              .eq("follower_id", currentUser.id)
+              .eq("followee_id", targetUserId);
+
+            if (error) throw error;
+
+            return new Response(JSON.stringify({ success: true, isFollowing: false }), {
+              status: 200,
+              headers: { "Content-Type": "application/json" },
+            });
           }
-
-          // Persist in auth user metadata
-          await supabaseAdmin.auth.admin.updateUserById(currentUser.id, {
-            user_metadata: {
-              ...(currentUser.user_metadata || {}),
-              following: currentFollowing,
-            },
-          });
-
-          // Compute new followersCount for target user
-          const { data: usersData } = await supabaseAdmin.auth.admin.listUsers({ perPage: 1000 });
-          const allUsers = usersData?.users || [];
-          let followersCount = 0;
-          for (const u of allUsers) {
-            const fList: string[] =
-              u.id === currentUser.id ? currentFollowing : u.user_metadata?.following || [];
-            if (fList.includes(targetUserId)) {
-              followersCount++;
-            }
-          }
-
-          return new Response(
-            JSON.stringify({
-              success: true,
-              isFollowing,
-              followersCount,
-              followingCount: currentFollowing.length,
-            }),
-            { status: 200, headers: { "Content-Type": "application/json" } },
-          );
         } catch (err: any) {
-          console.error("Follow error:", err);
+          console.error("[Follow Action] Error:", err);
           return new Response(JSON.stringify({ error: err.message || "Failed to update follow" }), {
             status: 500,
             headers: { "Content-Type": "application/json" },

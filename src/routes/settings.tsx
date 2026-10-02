@@ -25,15 +25,14 @@ import {
   ExternalLink,
   Lock,
   Globe,
-  Github,
   Building,
   MapPin,
   Info,
 } from "lucide-react";
 
 export const Route = createFileRoute("/settings")({
-  validateSearch: (search: Record<string, unknown>) => ({
-    tab: (search.tab as string) || "profile",
+  validateSearch: (search: Record<string, unknown>): { tab?: string } => ({
+    tab: (search["tab"] as string) || "profile",
   }),
   component: SettingsPage,
 });
@@ -81,16 +80,6 @@ function SettingsPage() {
   const [copiedToken, setCopiedToken] = useState(false);
   const [copiedCli, setCopiedCli] = useState(false);
 
-  // Storage Health State
-  const [storageHealth, setStorageHealth] = useState<{
-    ok: boolean;
-    folderName?: string;
-    folderId?: string;
-    serviceAccount?: string;
-    error?: string;
-    checking?: boolean;
-  } | null>(null);
-
   // Password Change State
   const [newPassword, setNewPassword] = useState("");
   const [confirmPassword, setConfirmPassword] = useState("");
@@ -121,9 +110,6 @@ function SettingsPage() {
   useEffect(() => {
     if (currentTab === "tokens" && user) {
       loadTokens();
-    }
-    if (currentTab === "storage") {
-      checkStorage();
     }
   }, [currentTab, user]);
 
@@ -191,21 +177,6 @@ function SettingsPage() {
       toast.error("Failed to load access tokens");
     } finally {
       setTokensLoading(false);
-    }
-  }
-
-  async function checkStorage() {
-    setStorageHealth({ ok: false, checking: true });
-    try {
-      const res = await fetch("/api/storage/health");
-      const data = await res.json();
-      setStorageHealth({ ...data, checking: false });
-    } catch (e: any) {
-      setStorageHealth({
-        ok: false,
-        error: e.message || "Failed to reach storage health endpoint",
-        checking: false,
-      });
     }
   }
 
@@ -427,19 +398,6 @@ function SettingsPage() {
             >
               <Key className="h-4 w-4 text-primary" />
               Access Tokens (PAT)
-            </button>
-
-            <button
-              type="button"
-              onClick={() => navigate({ to: "/settings", search: { tab: "storage" } })}
-              className={`w-full flex items-center gap-2.5 px-3 py-2 text-xs font-medium rounded-lg text-left transition-colors ${
-                currentTab === "storage"
-                  ? "bg-accent text-foreground font-semibold shadow-xs"
-                  : "text-muted-foreground hover:bg-muted/60 hover:text-foreground"
-              }`}
-            >
-              <HardDrive className="h-4 w-4 text-primary" />
-              Cloud Storage
             </button>
 
             <button
@@ -869,108 +827,6 @@ function SettingsPage() {
                         &lt;paste_your_personal_access_token&gt;
                       </strong>
                     </p>
-                  </div>
-                </div>
-              </div>
-            )}
-
-            {/* TAB 3: CLOUD STORAGE */}
-            {currentTab === "storage" && (
-              <div className="space-y-6">
-                <div className="border border-border rounded-xl bg-card p-6 shadow-xs space-y-5">
-                  <div className="flex items-center justify-between">
-                    <div>
-                      <h2 className="text-sm font-semibold text-foreground">
-                        Central File Storage Engine
-                      </h2>
-                      <p className="text-xs text-muted-foreground mt-0.5">
-                        GitBowl uses centralized object storage to store Git blobs, binary objects,
-                        and repository archives.
-                      </p>
-                    </div>
-                    <Button
-                      variant="outline"
-                      size="sm"
-                      onClick={checkStorage}
-                      disabled={storageHealth?.checking}
-                      className="h-8 text-xs gap-1.5"
-                    >
-                      <RefreshCw
-                        className={`h-3 w-3 ${storageHealth?.checking ? "animate-spin" : ""}`}
-                      />
-                      Check Health
-                    </Button>
-                  </div>
-
-                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                    <div className="border border-border rounded-lg p-4 bg-muted/20 space-y-2">
-                      <div className="flex items-center justify-between">
-                        <span className="text-xs font-semibold text-foreground">
-                          Storage Provider
-                        </span>
-                        <span className="inline-flex items-center gap-1 text-[11px] px-2 py-0.5 rounded-full bg-primary/10 text-primary font-medium">
-                          Google Drive
-                        </span>
-                      </div>
-                      <p className="text-[11px] text-muted-foreground">
-                        Service Account Authentication (Server-to-Server)
-                      </p>
-                    </div>
-
-                    <div className="border border-border rounded-lg p-4 bg-muted/20 space-y-2">
-                      <div className="flex items-center justify-between">
-                        <span className="text-xs font-semibold text-foreground">Target Folder</span>
-                        <span className="font-mono text-[11px] text-primary">
-                          {storageHealth?.folderName || "GitBowl-Store"}
-                        </span>
-                      </div>
-                      <p className="font-mono text-[11px] text-muted-foreground truncate">
-                        ID: 1kmpvKOO6Naofeq5V2je1GBxVvHl6Gwos
-                      </p>
-                    </div>
-                  </div>
-
-                  {/* Service Account Details */}
-                  <div className="border border-border rounded-lg p-4 space-y-3 bg-background">
-                    <h3 className="text-xs font-semibold text-foreground">
-                      Configured Service Account
-                    </h3>
-                    <div className="space-y-1 text-xs">
-                      <div className="flex justify-between py-1 border-b border-border/50">
-                        <span className="text-muted-foreground">Client Email</span>
-                        <span className="font-mono text-[11px] text-foreground">
-                          gitbowl-store@gitbowl.iam.gserviceaccount.com
-                        </span>
-                      </div>
-                      <div className="flex justify-between py-1 border-b border-border/50">
-                        <span className="text-muted-foreground">Target Shared Folder ID</span>
-                        <span className="font-mono text-[11px] text-foreground">
-                          1kmpvKOO6Naofeq5V2je1GBxVvHl6Gwos
-                        </span>
-                      </div>
-                      <div className="flex justify-between py-1">
-                        <span className="text-muted-foreground">Connection Status</span>
-                        <span className="inline-flex items-center gap-1 text-xs font-medium text-success">
-                          <Check className="h-3.5 w-3.5" /> Authenticated & Connected
-                        </span>
-                      </div>
-                    </div>
-                  </div>
-
-                  {/* Informational Notice */}
-                  <div className="border border-primary/20 bg-primary/5 rounded-xl p-4 flex gap-3 text-xs">
-                    <Info className="h-4 w-4 text-primary shrink-0 mt-0.5" />
-                    <div className="space-y-1">
-                      <p className="font-semibold text-foreground">
-                        Google Cloud Storage Architecture
-                      </p>
-                      <p className="text-muted-foreground text-[11px] leading-relaxed">
-                        Your service account credentials are encrypted and stored exclusively in the
-                        backend server. All Git clone, push, and file requests pass through
-                        server-side proxy handlers with access token rotation, keeping private keys
-                        secure.
-                      </p>
-                    </div>
                   </div>
                 </div>
               </div>

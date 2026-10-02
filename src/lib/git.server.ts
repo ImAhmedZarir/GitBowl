@@ -151,7 +151,7 @@ export async function authenticate(request: Request, admin: Admin): Promise<stri
   // Support Personal Access Tokens (token as password)
   if (password.startsWith("gbp_")) {
     try {
-      const hash = crypto.createHash("sha256").update(password).digest("hex");
+      const hash = createHash("sha256").update(password).digest("hex");
       const { data: pat } = await admin
         .from("personal_access_tokens")
         .select("id, user_id, expires_at")
