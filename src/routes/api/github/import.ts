@@ -3,9 +3,113 @@ import JSZip from "jszip";
 import { supabaseAdmin } from "@/integrations/supabase/client.server";
 import { syncFilesToGoogleDrive } from "@/lib/gdrive.server";
 import { createNotification } from "@/lib/notifications.server";
+import { notifySearchEngines } from "@/lib/indexnow.server";
 
 const BINARY_EXT =
   /\.(png|jpe?g|gif|webp|ico|pdf|zip|gz|tar|tgz|7z|rar|mp4|webm|mp3|wav|ogg|wasm|exe|dll|so|dylib|bin|iso|dmg|ttf|otf|woff2?|eot)$/i;
+
+interface FileItem {
+  path: string;
+  content: string;
+  is_binary: boolean;
+  size: number;
+}
+
+/**
+ * Inserts files into public.repo_files using size-aware adaptive batching.
+ * Prevents PostgreSQL 'canceling statement due to statement timeout' by ensuring
+ * no single SQL statement has an excessive row count or large payload.
+ */
+async function insertFilesAdaptively(
+  supabase: typeof supabaseAdmin,
+  repoId: string,
+  files: FileItem[],
+): Promise<void> {
+  const MAX_BATCH_FILES = 15;
+  const MAX_BATCH_BYTES = 180 * 1024; // 180 KB payload cap per SQL query
+
+  const batches: FileItem[][] = [];
+  let currentBatch: FileItem[] = [];
+  let currentBatchBytes = 0;
+
+  for (const file of files) {
+    const fileBytes = (file.content?.length || 0) + (file.size || 0);
+
+    // Large individual files get isolated into their own dedicated statement
+    if (fileBytes >= MAX_BATCH_BYTES) {
+      if (currentBatch.length > 0) {
+        batches.push(currentBatch);
+        currentBatch = [];
+        currentBatchBytes = 0;
+      }
+      batches.push([file]);
+      continue;
+    }
+
+    if (currentBatch.length >= MAX_BATCH_FILES || currentBatchBytes + fileBytes > MAX_BATCH_BYTES) {
+      batches.push(currentBatch);
+      currentBatch = [file];
+      currentBatchBytes = fileBytes;
+    } else {
+      currentBatch.push(file);
+      currentBatchBytes += fileBytes;
+    }
+  }
+
+  if (currentBatch.length > 0) {
+    batches.push(currentBatch);
+  }
+
+  // Execute each batch with retry & recursive subdivision on timeout
+  for (const batch of batches) {
+    await insertBatchWithRetry(supabase, repoId, batch);
+  }
+}
+
+async function insertBatchWithRetry(
+  supabase: typeof supabaseAdmin,
+  repoId: string,
+  batch: FileItem[],
+  retries = 2,
+): Promise<void> {
+  const rows = batch.map((f) => ({
+    ...f,
+    repo_id: repoId,
+    updated_at: new Date().toISOString(),
+  }));
+
+  const { error } = await supabase.from("repo_files").insert(rows);
+
+  if (error) {
+    const errText = (error.message || "").toLowerCase();
+    const isTimeout =
+      errText.includes("statement timeout") ||
+      errText.includes("canceling statement") ||
+      (error as any).code === "57014";
+
+    // If batch contains multiple files and hit a timeout or error, split into smaller sub-batches
+    if (batch.length > 1) {
+      console.warn(
+        `[Import] Statement error on batch of ${batch.length} files (${error.message}). Splitting into smaller sub-batches...`,
+      );
+      const mid = Math.ceil(batch.length / 2);
+      await insertBatchWithRetry(supabase, repoId, batch.slice(0, mid), retries);
+      await insertBatchWithRetry(supabase, repoId, batch.slice(mid), retries);
+      return;
+    }
+
+    // Single-file retry
+    if (retries > 0) {
+      console.warn(
+        `[Import] Retrying single file insert: ${batch[0]?.path} (${retries} retries left)`,
+      );
+      await new Promise((resolve) => setTimeout(resolve, 200));
+      return insertBatchWithRetry(supabase, repoId, batch, retries - 1);
+    }
+
+    throw error;
+  }
+}
 
 export const Route = createFileRoute("/api/github/import")({
   server: {
@@ -206,6 +310,8 @@ export const Route = createFileRoute("/api/github/import")({
             });
           }
 
+          let createdRepoId: string | null = null;
+
           // 5. Create repository in GitBowl
           const { data: newRepo, error: repoError } = await supabaseAdmin
             .from("repositories")
@@ -220,52 +326,51 @@ export const Route = createFileRoute("/api/github/import")({
             .single();
 
           if (repoError) throw repoError;
+          createdRepoId = newRepo.id;
 
-          // 6. Insert files in chunks of 50
-          for (let i = 0; i < filesToInsert.length; i += 50) {
-            const chunk = filesToInsert.slice(i, i + 50).map((f) => ({
-              ...f,
-              repo_id: newRepo.id,
-              updated_at: new Date().toISOString(),
-            }));
-            const { error: insertErr } = await supabaseAdmin.from("repo_files").insert(chunk);
-            if (insertErr) throw insertErr;
-          }
+          // 6. Insert files using adaptive size-aware batching (prevents statement timeout)
+          await insertFilesAdaptively(supabaseAdmin, newRepo.id, filesToInsert);
 
-          // 7. Create initial commit
+          // 7. Create initial commit (cap changes array at 250 items to keep jsonb payload lightweight)
+          const commitChanges = filesToInsert
+            .slice(0, 250)
+            .map((f) => ({ path: f.path, type: "added" }));
+
           await supabaseAdmin.from("commits").insert({
             repo_id: newRepo.id,
             author_id: userId,
             message: `Import from GitHub (${ghOwner}/${ghRepo})`,
-            changes: filesToInsert.map((f) => ({ path: f.path, type: "added" })),
+            changes: commitChanges,
           });
 
           // 8. Mirror ALL imported files to central storage (100% of files)
           const totalBytes = filesToInsert.reduce((acc, f) => acc + (f.size || 0), 0);
-          syncFilesToGoogleDrive(username, newRepo.name, filesToInsert)
-            .then(async (syncResult) => {
-              // Record in storage_backups table for Admin Center visibility
-              await supabaseAdmin.from("storage_backups" as any).insert({
-                repo_id: newRepo.id,
-                sha: "import-head",
-                status: syncResult.success ? "done" : "failed",
-                size: totalBytes,
-                attempts: 1,
-                last_error: syncResult.errors.length
-                  ? syncResult.errors.slice(0, 3).join("; ")
-                  : null,
-              });
+          try {
+            const syncResult = await syncFilesToGoogleDrive(username, newRepo.name, filesToInsert);
 
-              // Create user notification
-              await createNotification({
-                userId,
-                type: "sync",
-                title: `Repository Sync: ${newRepo.name}`,
-                content: `All ${syncResult.syncedCount} of ${filesToInsert.length} files successfully imported and synchronized.`,
-                link: `/${username}/${newRepo.name}`,
-              });
-            })
-            .catch((e) => console.warn("[Sync] Import notice:", e));
+            // Record in storage_backups table for Admin Center visibility
+            await supabaseAdmin.from("storage_backups" as any).insert({
+              repo_id: newRepo.id,
+              sha: "import-head",
+              status: syncResult.success ? "done" : "failed",
+              size: totalBytes,
+              attempts: 1,
+              last_error: syncResult.errors.length
+                ? syncResult.errors.slice(0, 3).join("; ")
+                : null,
+            });
+
+            // Create user notification
+            await createNotification({
+              userId,
+              type: "sync",
+              title: `Repository Sync: ${newRepo.name}`,
+              content: `All ${syncResult.syncedCount} of ${filesToInsert.length} files successfully imported and synchronized.`,
+              link: `/${username}/${newRepo.name}`,
+            });
+          } catch (syncErr) {
+            console.warn("[Sync] Import notice error:", syncErr);
+          }
 
           // Also create immediate import notification
           await createNotification({
@@ -275,6 +380,13 @@ export const Route = createFileRoute("/api/github/import")({
             content: `Repository ${newRepo.name} created with ${filesToInsert.length} files. Cloud storage active.`,
             link: `/${username}/${newRepo.name}`,
           });
+
+          // If repository is public, notify search engines immediately for super-fast indexation
+          if (!isPrivate) {
+            notifySearchEngines([`https://gitbowl.zone.id/${username}/${newRepo.name}`]).catch(
+              (e) => console.warn("[SEO] IndexNow notify notice:", e),
+            );
+          }
 
           return new Response(
             JSON.stringify({
@@ -287,10 +399,35 @@ export const Route = createFileRoute("/api/github/import")({
           );
         } catch (err: any) {
           console.error("GitHub import error:", err);
-          return new Response(
-            JSON.stringify({ error: err.message || "Failed to import GitHub repository" }),
-            { status: 500, headers: { "Content-Type": "application/json" } },
-          );
+
+          // Clean rollback: if repository row was created but file insertion or commits failed,
+          // delete the partial repository so the user does not get blocked with 'repo already exists' on retry.
+          if (createdRepoId) {
+            try {
+              await supabaseAdmin.from("repositories").delete().eq("id", createdRepoId);
+              console.info(
+                `[Import] Cleaned up partial repository '${createdRepoId}' after import error`,
+              );
+            } catch (cleanupErr) {
+              console.warn("[Import] Failed to rollback partial repository:", cleanupErr);
+            }
+          }
+
+          const rawError = err.message || "Failed to import GitHub repository";
+          // Present user-friendly explanation if Postgres statement timeout occurred
+          const isTimeout =
+            rawError.includes("statement timeout") ||
+            rawError.includes("canceling statement") ||
+            (err as any).code === "57014";
+
+          const friendlyMessage = isTimeout
+            ? "Database statement timeout during bulk file write. The repository import has been rolled back safely. Please retry or import with fewer large binary files."
+            : rawError;
+
+          return new Response(JSON.stringify({ error: friendlyMessage }), {
+            status: 500,
+            headers: { "Content-Type": "application/json" },
+          });
         }
       },
     },

@@ -202,15 +202,33 @@ function NewRepo() {
         }
       }
       if (rows.length) {
-        const { error: fileError } = await supabase.from("repo_files").insert(rows);
-        if (fileError) throw fileError;
+        for (let i = 0; i < rows.length; i += 15) {
+          const chunk = rows.slice(i, i + 15);
+          const { error: fileError } = await supabase.from("repo_files").insert(chunk);
+          if (fileError) throw fileError;
+        }
       }
       await supabase.from("commits").insert({
         repo_id: (repo as any).id,
         author_id: profile.id,
         message: rows.length ? "Initial upload" : "Create repository",
-        changes: rows.map((r) => ({ path: r.path, type: "added" })),
+        changes: rows.slice(0, 250).map((r) => ({ path: r.path, type: "added" })),
       });
+
+      if (rows.length) {
+        supabase.auth.getSession().then(({ data: sessData }) => {
+          if (sessData?.session?.access_token) {
+            fetch("/api/repo/sync-gdrive", {
+              method: "POST",
+              headers: {
+                "Content-Type": "application/json",
+                Authorization: `Bearer ${sessData.session.access_token}`,
+              },
+              body: JSON.stringify({ repoId: (repo as any).id }),
+            }).catch((e) => console.warn("[GDrive] Async sync trigger notice:", e));
+          }
+        });
+      }
 
       toast.success("Repository created");
       navigate({

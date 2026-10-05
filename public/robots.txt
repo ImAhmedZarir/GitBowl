@@ -1,24 +1,47 @@
-# GitBowl robots.txt  (replace gitbowl.zone.id with your final domain)
+# GitBowl Production robots.txt
+# Domain: https://gitbowl.zone.id/
+# Contact: mail.gitbowl@gmail.com
+
 User-agent: *
 Allow: /
-Disallow: /api/
+Allow: /explore
+Allow: /docs
+Allow: /api/docs
+Allow: /api/og
 Disallow: /admin
 Disallow: /settings
 Disallow: /auth
 Disallow: /new
 Disallow: /search
 Disallow: /notifications
-Disallow: /issues
-Disallow: /pulls
+Disallow: /api/internal/
+Disallow: /api/admin/
 
-# AI answer engines (remove these blocks if you do not want AI crawling)
+# AI & Search Engine Answer Bots
+User-agent: Googlebot
+Allow: /
+Allow: /docs
+Allow: /explore
+
+User-agent: Bingbot
+Allow: /
+Allow: /docs
+Allow: /explore
+
 User-agent: GPTBot
 Allow: /
+Allow: /docs
+
 User-agent: PerplexityBot
 Allow: /
+Allow: /docs
+
 User-agent: ClaudeBot
 Allow: /
+Allow: /docs
+
 User-agent: Google-Extended
 Allow: /
 
 Sitemap: https://gitbowl.zone.id/sitemap.xml
+Host: https://gitbowl.zone.id

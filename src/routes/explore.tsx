@@ -10,15 +10,31 @@ import { RepoCard } from "@/components/RepoCard";
 export const Route = createFileRoute("/explore")({
   head: () => ({
     meta: [
-      { title: "Explore repositories — GitBowl" },
+      { title: "Explore Open Source Repositories — GitBowl" },
       {
         name: "description",
         content:
-          "Browse public repositories hosted on GitBowl and find code to fork, star or clone.",
+          "Browse, search, and discover open-source repositories hosted on GitBowl. Fork, star, clone via Smart-HTTP, or inspect live code in the web editor.",
       },
-      { property: "og:title", content: "Explore repositories — GitBowl" },
-      { property: "og:description", content: "Browse public repositories hosted on GitBowl." },
+      { property: "og:site_name", content: "GitBowl" },
+      { property: "og:type", content: "website" },
+      { property: "og:title", content: "Explore Open Source Repositories — GitBowl" },
+      {
+        property: "og:description",
+        content:
+          "Browse, search, and discover open-source repositories hosted on GitBowl. Fork, star, clone via Smart-HTTP, or inspect live code in the web editor.",
+      },
+      { property: "og:url", content: "https://gitbowl.zone.id/explore" },
+      { property: "og:image", content: "https://gitbowl.zone.id/og-image.png" },
+      { name: "twitter:card", content: "summary_large_image" },
+      { name: "twitter:title", content: "Explore Open Source Repositories — GitBowl" },
+      {
+        name: "twitter:description",
+        content: "Discover open-source repositories hosted on GitBowl.",
+      },
+      { name: "twitter:image", content: "https://gitbowl.zone.id/og-image.png" },
     ],
+    links: [{ rel: "canonical", href: "https://gitbowl.zone.id/explore" }],
   }),
   component: Explore,
 });

@@ -105,20 +105,89 @@ export const Route = createFileRoute("/$owner/$repo")({
       return null;
     }
   },
-  head: ({ params }) => ({
-    meta: [
-      { title: `${params.owner}/${params.repo} — GitBowl` },
-      {
-        name: "description",
-        content: `Browse, edit and clone ${params.owner}/${params.repo} on GitBowl.`,
+  head: ({ params }) => {
+    const canonicalUrl = `https://gitbowl.zone.id/${params.owner}/${params.repo}`;
+    const ogImageUrl = `https://gitbowl.zone.id/api/og?title=${encodeURIComponent(params.repo)}&owner=${encodeURIComponent(params.owner)}`;
+
+    const repoSchema = {
+      "@context": "https://schema.org",
+      "@type": "SoftwareSourceCode",
+      name: `${params.owner}/${params.repo}`,
+      codeRepository: `https://gitbowl.zone.id/${params.owner}/${params.repo}.git`,
+      url: canonicalUrl,
+      author: {
+        "@type": "Person",
+        name: params.owner,
+        url: `https://gitbowl.zone.id/${params.owner}`,
       },
-      { property: "og:title", content: `${params.owner}/${params.repo} — GitBowl` },
-      {
-        property: "og:description",
-        content: `Browse, edit and clone ${params.owner}/${params.repo} on GitBowl.`,
-      },
-    ],
-  }),
+      programmingLanguage: "Git",
+      isAccessibleForFree: true,
+    };
+
+    const breadcrumbsSchema = {
+      "@context": "https://schema.org",
+      "@type": "BreadcrumbList",
+      itemListElement: [
+        {
+          "@type": "ListItem",
+          position: 1,
+          name: "Home",
+          item: "https://gitbowl.zone.id/",
+        },
+        {
+          "@type": "ListItem",
+          position: 2,
+          name: params.owner,
+          item: `https://gitbowl.zone.id/${params.owner}`,
+        },
+        {
+          "@type": "ListItem",
+          position: 3,
+          name: params.repo,
+          item: canonicalUrl,
+        },
+      ],
+    };
+
+    return {
+      meta: [
+        { title: `${params.owner}/${params.repo}: Git Repository — GitBowl` },
+        {
+          name: "description",
+          content: `Explore, clone, and collaborate on ${params.owner}/${params.repo} on GitBowl. High-performance Git repository with Smart-HTTP protocol and built-in web editor.`,
+        },
+        { property: "og:site_name", content: "GitBowl" },
+        { property: "og:type", content: "website" },
+        { property: "og:title", content: `${params.owner}/${params.repo} — GitBowl` },
+        {
+          property: "og:description",
+          content: `Explore, clone, and collaborate on ${params.owner}/${params.repo} on GitBowl. High-performance Git repository with Smart-HTTP protocol.`,
+        },
+        { property: "og:url", content: canonicalUrl },
+        { property: "og:image", content: ogImageUrl },
+        { property: "og:image:width", content: "1200" },
+        { property: "og:image:height", content: "630" },
+        { name: "twitter:card", content: "summary_large_image" },
+        { name: "twitter:title", content: `${params.owner}/${params.repo} — GitBowl` },
+        {
+          name: "twitter:description",
+          content: `Explore, clone, and collaborate on ${params.owner}/${params.repo} on GitBowl.`,
+        },
+        { name: "twitter:image", content: ogImageUrl },
+      ],
+      links: [{ rel: "canonical", href: canonicalUrl }],
+      scripts: [
+        {
+          type: "application/ld+json",
+          children: JSON.stringify(repoSchema),
+        },
+        {
+          type: "application/ld+json",
+          children: JSON.stringify(breadcrumbsSchema),
+        },
+      ],
+    };
+  },
   component: RepoPage,
 });
 

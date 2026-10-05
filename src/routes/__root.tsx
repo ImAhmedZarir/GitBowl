@@ -23,6 +23,7 @@ import {
   SCHEMA_WEBAPPLICATION,
   SCHEMA_WEBSITE,
   SCHEMA_FAQ,
+  SCHEMA_BREADCRUMBS,
 } from "@/lib/seo-schemas";
 
 function NotFoundComponent() {
@@ -135,6 +136,8 @@ export const Route = createRootRouteWithContext<{ queryClient: QueryClient }>()(
         name: "bingbot",
         content: "index, follow, max-snippet:-1, max-image-preview:large",
       },
+      { name: "google-site-verification", content: "googlec7847597a5a4c1ac" },
+      { name: "msvalidate.01", content: "4D0C547C313C9EBDC216C37E55288BFA" },
       { name: "theme-color", content: "#0B132B" },
       { name: "color-scheme", content: "dark light" },
       { name: "application-name", content: "GitBowl" },
@@ -209,6 +212,10 @@ export const Route = createRootRouteWithContext<{ queryClient: QueryClient }>()(
       {
         type: "application/ld+json",
         children: JSON.stringify(SCHEMA_FAQ),
+      },
+      {
+        type: "application/ld+json",
+        children: JSON.stringify(SCHEMA_BREADCRUMBS),
       },
     ],
   }),

@@ -30,20 +30,53 @@ export const Route = createFileRoute("/$owner/")({
   validateSearch: (search: Record<string, unknown>): { tab?: string } => ({
     tab: (search["tab"] as string) || "overview",
   }),
-  head: ({ params }) => ({
-    meta: [
-      { title: `${params.owner} — GitBowl` },
-      {
-        name: "description",
-        content: `Repositories and contributions by ${params.owner} on GitBowl.`,
+  head: ({ params }) => {
+    const canonicalUrl = `https://gitbowl.zone.id/${params.owner}`;
+    const profileSchema = {
+      "@context": "https://schema.org",
+      "@type": "ProfilePage",
+      dateCreated: "2026-01-01T00:00:00Z",
+      mainEntity: {
+        "@type": "Person",
+        name: params.owner,
+        identifier: params.owner,
+        url: canonicalUrl,
       },
-      { property: "og:title", content: `${params.owner} — GitBowl` },
-      {
-        property: "og:description",
-        content: `Repositories and contributions by ${params.owner} on GitBowl.`,
-      },
-    ],
-  }),
+    };
+
+    return {
+      meta: [
+        { title: `${params.owner} (Developer Profile) — GitBowl` },
+        {
+          name: "description",
+          content: `View public repositories, source code, and developer contributions by ${params.owner} on GitBowl.`,
+        },
+        { property: "og:site_name", content: "GitBowl" },
+        { property: "og:type", content: "profile" },
+        { property: "og:title", content: `${params.owner} — GitBowl` },
+        {
+          property: "og:description",
+          content: `Repositories, open source code, and activity by ${params.owner} on GitBowl.`,
+        },
+        { property: "og:url", content: canonicalUrl },
+        { property: "og:image", content: "https://gitbowl.zone.id/og-image.png" },
+        { name: "twitter:card", content: "summary_large_image" },
+        { name: "twitter:title", content: `${params.owner} — GitBowl` },
+        {
+          name: "twitter:description",
+          content: `View public code repositories by ${params.owner} on GitBowl.`,
+        },
+        { name: "twitter:image", content: "https://gitbowl.zone.id/og-image.png" },
+      ],
+      links: [{ rel: "canonical", href: canonicalUrl }],
+      scripts: [
+        {
+          type: "application/ld+json",
+          children: JSON.stringify(profileSchema),
+        },
+      ],
+    };
+  },
   component: OwnerPage,
 });
 

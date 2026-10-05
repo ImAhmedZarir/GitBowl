@@ -25,16 +25,68 @@ import {
 import { toast } from "sonner";
 
 export const Route = createFileRoute("/docs")({
-  head: () => ({
-    meta: [
-      { title: "Documentation & Guides — GitBowl" },
-      {
-        name: "description",
-        content:
-          "Complete documentation for GitBowl: Git over HTTPS, Personal Access Tokens, Zip uploads, Web editor, and REST API.",
+  head: () => {
+    const canonicalUrl = "https://gitbowl.zone.id/docs";
+    const ogImageUrl = "https://gitbowl.zone.id/og-image.png";
+
+    const docsSchema = {
+      "@context": "https://schema.org",
+      "@type": "TechArticle",
+      headline: "GitBowl Documentation & Developer Guides",
+      description:
+        "Comprehensive documentation for GitBowl: Git Smart-HTTP protocol, Personal Access Tokens, repository imports, and REST API.",
+      author: {
+        "@type": "Organization",
+        name: "GitBowl",
+        url: "https://gitbowl.zone.id/",
       },
-    ],
-  }),
+      publisher: {
+        "@type": "Organization",
+        name: "GitBowl",
+        url: "https://gitbowl.zone.id/",
+      },
+      url: canonicalUrl,
+      mainEntityOfPage: canonicalUrl,
+    };
+
+    return {
+      meta: [
+        { title: "GitBowl Documentation — Git over HTTPS, Personal Tokens & REST API" },
+        {
+          name: "description",
+          content:
+            "Complete developer guides and documentation for GitBowl: Git Smart-HTTP commands, personal access tokens (PATs), GitHub migration, web code editor, and REST API.",
+        },
+        { property: "og:site_name", content: "GitBowl" },
+        { property: "og:type", content: "article" },
+        { property: "og:title", content: "GitBowl Documentation & Developer Guides" },
+        {
+          property: "og:description",
+          content:
+            "Learn how to clone, push, import, and collaborate using GitBowl. Guides for Git Smart-HTTP, access tokens, and API integration.",
+        },
+        { property: "og:url", content: canonicalUrl },
+        { property: "og:image", content: ogImageUrl },
+        { property: "og:image:width", content: "1200" },
+        { property: "og:image:height", content: "630" },
+        { name: "twitter:card", content: "summary_large_image" },
+        { name: "twitter:title", content: "GitBowl Documentation & Developer Guides" },
+        {
+          name: "twitter:description",
+          content:
+            "Complete guides for Git over HTTPS, personal tokens, zip uploads, and REST API on GitBowl.",
+        },
+        { name: "twitter:image", content: ogImageUrl },
+      ],
+      links: [{ rel: "canonical", href: canonicalUrl }],
+      scripts: [
+        {
+          type: "application/ld+json",
+          children: JSON.stringify(docsSchema),
+        },
+      ],
+    };
+  },
   component: DocsPage,
 });
 

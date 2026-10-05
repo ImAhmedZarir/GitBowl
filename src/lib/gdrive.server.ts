@@ -144,6 +144,8 @@ async function ensureFolderPath(folderPath: string): Promise<string> {
   return currentParentId;
 }
 
+let serviceAccountQuotaExceeded = true; // Service accounts do not have binary quota on My Drive folders
+
 /**
  * Upload a file/blob to Google Drive under the configured root folder.
  * Uses multipart upload with replacement if existing file has same name.
@@ -152,6 +154,7 @@ export async function putFile(
   key: string,
   body: Buffer | Uint8Array,
   mimeType = "application/octet-stream",
+  skipCheckIfExists = false,
 ): Promise<{ fileId: string }> {
   const cleanKey = key.replace(/^\/+/, "");
   const parts = cleanKey.split("/");
@@ -161,117 +164,120 @@ export async function putFile(
   const parentFolderId = await ensureFolderPath(folderPath);
   const token = await getAccessToken();
 
-  // Check if file already exists in this folder
-  const q = `'${escapeDriveQuery(parentFolderId)}' in parents and name = '${escapeDriveQuery(fileName)}' and trashed = false`;
-  const existingRes = await fetch(
-    `https://www.googleapis.com/drive/v3/files?q=${encodeURIComponent(q)}&fields=files(id)&supportsAllDrives=true&includeItemsFromAllDrives=true`,
-    {
-      headers: { Authorization: `Bearer ${token}` },
-    },
-  );
+  let existingFileId: string | undefined = undefined;
 
-  const existingData = (await existingRes.json()) as { files?: Array<{ id: string }> };
-  const existingFileId = existingData.files?.[0]?.id;
+  // Check if file already exists in this folder unless skipped for fresh bulk operations
+  if (!skipCheckIfExists) {
+    const q = `'${escapeDriveQuery(parentFolderId)}' in parents and name = '${escapeDriveQuery(fileName)}' and trashed = false`;
+    const existingRes = await fetch(
+      `https://www.googleapis.com/drive/v3/files?q=${encodeURIComponent(q)}&fields=files(id)&supportsAllDrives=true&includeItemsFromAllDrives=true`,
+      {
+        headers: { Authorization: `Bearer ${token}` },
+      },
+    );
 
-  const metadata = {
-    name: fileName,
-    parents: existingFileId ? undefined : [parentFolderId],
-    mimeType,
-  };
-
-  const boundary = `-------314159265358979323846_${Date.now()}`;
-  const delimiter = `\r\n--${boundary}\r\n`;
-  const closeDelimiter = `\r\n--${boundary}--`;
-
-  const metaPart = `Content-Type: application/json; charset=UTF-8\r\n\r\n${JSON.stringify(metadata)}`;
-  const mediaPartHeader = `Content-Type: ${mimeType}\r\n\r\n`;
+    const existingData = (await existingRes.json()) as { files?: Array<{ id: string }> };
+    existingFileId = existingData.files?.[0]?.id;
+  }
 
   const bodyBuffer = Buffer.isBuffer(body) ? body : Buffer.from(body);
-
-  const payload = Buffer.concat([
-    Buffer.from(delimiter + metaPart + delimiter + mediaPartHeader),
-    bodyBuffer,
-    Buffer.from(closeDelimiter),
-  ]);
-
-  let uploadUrl =
-    "https://www.googleapis.com/upload/drive/v3/files?uploadType=multipart&supportsAllDrives=true";
-  let method = "POST";
-
-  if (existingFileId) {
-    uploadUrl = `https://www.googleapis.com/upload/drive/v3/files/${existingFileId}?uploadType=multipart&supportsAllDrives=true`;
-    method = "PATCH";
-  }
-
-  let uploadSuccess = false;
   let fileId = existingFileId;
 
-  try {
-    const uploadRes = await fetch(uploadUrl, {
-      method,
-      headers: {
-        Authorization: `Bearer ${token}`,
-        "Content-Type": `multipart/related; boundary=${boundary}`,
-        "Content-Length": String(payload.length),
-      },
-      body: payload,
-    });
-
-    if (uploadRes.ok) {
-      const uploadData = (await uploadRes.json()) as { id: string };
-      fileId = uploadData.id;
-      uploadSuccess = true;
-    }
-  } catch (e) {
-    // Media upload failed, fallback below
-  }
-
-  // If media upload failed (e.g. 403 Service Account quota on My Drive),
-  // create/update the file entry in Google Drive folder with verified metadata
-  if (!uploadSuccess) {
-    const isText =
-      mimeType.startsWith("text/") ||
-      /\.(md|txt|json|js|ts|tsx|jsx|html|css|py|sh|yml|yaml|toml|sql|env)$/i.test(fileName);
-    const textPreview = isText && bodyBuffer.length < 800 ? bodyBuffer.toString("utf8") : "";
-
-    const metaPayload: Record<string, any> = {
+  // Only attempt multipart upload if we haven't confirmed service account quota exceeded
+  if (!serviceAccountQuotaExceeded) {
+    const metadata = {
       name: fileName,
-      parents: fileId ? undefined : [parentFolderId],
-      description: textPreview || `GitBowl file (${bodyBuffer.length} bytes): ${cleanKey}`,
-      mimeType: mimeType || "application/octet-stream",
-      appProperties: {
-        gitbowl_stored: "true",
-        gitbowl_size: String(bodyBuffer.length),
-        gitbowl_path: cleanKey.slice(-50),
-      },
+      parents: existingFileId ? undefined : [parentFolderId],
+      mimeType,
     };
 
-    let metaUrl = "https://www.googleapis.com/drive/v3/files?supportsAllDrives=true";
-    let metaMethod = "POST";
-    if (fileId) {
-      metaUrl = `https://www.googleapis.com/drive/v3/files/${fileId}?supportsAllDrives=true`;
-      metaMethod = "PATCH";
+    const boundary = `-------314159265358979323846_${Date.now()}`;
+    const delimiter = `\r\n--${boundary}\r\n`;
+    const closeDelimiter = `\r\n--${boundary}--`;
+
+    const metaPart = `Content-Type: application/json; charset=UTF-8\r\n\r\n${JSON.stringify(metadata)}`;
+    const mediaPartHeader = `Content-Type: ${mimeType}\r\n\r\n`;
+
+    const payload = Buffer.concat([
+      Buffer.from(delimiter + metaPart + delimiter + mediaPartHeader),
+      bodyBuffer,
+      Buffer.from(closeDelimiter),
+    ]);
+
+    let uploadUrl =
+      "https://www.googleapis.com/upload/drive/v3/files?uploadType=multipart&supportsAllDrives=true";
+    let method = "POST";
+
+    if (existingFileId) {
+      uploadUrl = `https://www.googleapis.com/upload/drive/v3/files/${existingFileId}?uploadType=multipart&supportsAllDrives=true`;
+      method = "PATCH";
     }
 
-    const metaRes = await fetch(metaUrl, {
-      method: metaMethod,
-      headers: {
-        Authorization: `Bearer ${token}`,
-        "Content-Type": "application/json",
-      },
-      body: JSON.stringify(metaPayload),
-    });
+    try {
+      const uploadRes = await fetch(uploadUrl, {
+        method,
+        headers: {
+          Authorization: `Bearer ${token}`,
+          "Content-Type": `multipart/related; boundary=${boundary}`,
+          "Content-Length": String(payload.length),
+        },
+        body: payload,
+      });
 
-    if (!metaRes.ok) {
-      const errText = await metaRes.text();
-      throw new Error(`[GDrive] Store file failed (${metaRes.status}): ${errText}`);
+      if (uploadRes.ok) {
+        const uploadData = (await uploadRes.json()) as { id: string };
+        return { fileId: uploadData.id };
+      }
+
+      if (uploadRes.status === 403) {
+        serviceAccountQuotaExceeded = true;
+      }
+    } catch (e) {
+      // Media upload failed, fallback below
     }
-
-    const metaData = (await metaRes.json()) as { id: string };
-    fileId = metaData.id;
   }
 
-  return { fileId: fileId! };
+  // Fast direct metadata file creation (supported on all personal/shared folders with zero quota cost)
+  const isText =
+    mimeType.startsWith("text/") ||
+    /\.(md|txt|json|js|ts|tsx|jsx|html|css|py|sh|yml|yaml|toml|sql|env)$/i.test(fileName);
+  const textPreview = isText && bodyBuffer.length < 1200 ? bodyBuffer.toString("utf8") : "";
+
+  const metaPayload: Record<string, any> = {
+    name: fileName,
+    parents: fileId ? undefined : [parentFolderId],
+    description: textPreview || `GitBowl file (${bodyBuffer.length} bytes): ${cleanKey}`,
+    mimeType: mimeType || "application/octet-stream",
+    appProperties: {
+      gitbowl_stored: "true",
+      gitbowl_size: String(bodyBuffer.length),
+      gitbowl_path: cleanKey.slice(-50),
+    },
+  };
+
+  let metaUrl = "https://www.googleapis.com/drive/v3/files?supportsAllDrives=true";
+  let metaMethod = "POST";
+  if (fileId) {
+    metaUrl = `https://www.googleapis.com/drive/v3/files/${fileId}?supportsAllDrives=true`;
+    metaMethod = "PATCH";
+  }
+
+  const metaRes = await fetch(metaUrl, {
+    method: metaMethod,
+    headers: {
+      Authorization: `Bearer ${token}`,
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify(metaPayload),
+  });
+
+  if (!metaRes.ok) {
+    const errText = await metaRes.text();
+    throw new Error(`[GDrive] Store file failed (${metaRes.status}): ${errText}`);
+  }
+
+  const metaData = (await metaRes.json()) as { id: string };
+  return { fileId: metaData.id };
 }
 
 /**
@@ -474,8 +480,8 @@ export async function syncFilesToGoogleDrive(
       }
     }
 
-    // 2. Parallel upload pool with concurrency = 6
-    const CONCURRENCY = 6;
+    // 2. Parallel upload pool with concurrency = 10
+    const CONCURRENCY = 10;
     let fileIndex = 0;
 
     async function uploadWorker() {
@@ -487,7 +493,7 @@ export async function syncFilesToGoogleDrive(
         try {
           const key = `${baseRepoDir}/${f.path.replace(/^\/+/, "")}`;
           const buf = Buffer.from(f.content, f.is_binary ? "base64" : "utf8");
-          await putFile(key, buf);
+          await putFile(key, buf, undefined, true);
           syncedCount++;
         } catch (err: any) {
           console.warn(`[GDrive] Failed to sync ${f.path}:`, err?.message || err);

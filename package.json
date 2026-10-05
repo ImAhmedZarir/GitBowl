@@ -10,7 +10,7 @@
     "preview": "vite preview",
     "lint": "eslint .",
     "format": "prettier --write .",
-    "test": "node tests/phase0-acceptance.test.mjs && npx tsx tests/phase1-acceptance.test.mjs && npx tsx tests/phase2-acceptance.test.mjs && npx tsx tests/phase3-acceptance.test.mjs && npx tsx tests/phase4-acceptance.test.mjs && npx tsx tests/phase5-acceptance.test.mjs && npx tsx tests/part-a-acceptance.test.mjs"
+    "test": "node tests/phase0-acceptance.test.mjs && npx tsx tests/phase1-acceptance.test.mjs && npx tsx tests/phase2-acceptance.test.mjs && npx tsx tests/phase3-acceptance.test.mjs && npx tsx tests/phase4-acceptance.test.mjs && npx tsx tests/phase5-acceptance.test.mjs && npx tsx tests/part-a-acceptance.test.mjs && npx tsx tests/seo-acceptance.test.mjs"
   },
   "overrides": {
     "rolldown": "1.2.1"

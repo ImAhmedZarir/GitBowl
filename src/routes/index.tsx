@@ -38,18 +38,42 @@ import { EmptyState } from "@/components/EmptyState";
 export const Route = createFileRoute("/")({
   head: () => ({
     meta: [
-      { title: "GitBowl — Your code, in a bowl." },
+      {
+        title: "GitBowl — High-Performance Git Code Hosting Platform | Free Repositories",
+      },
       {
         name: "description",
         content:
-          "Create repositories, upload a zip, edit in a real code editor, commit, fork, star and share. GitBowl is code hosting without the setup.",
+          "GitBowl is a high-speed Git repository hosting platform. Host, clone, push, pull, and collaborate with Smart-HTTP protocol, unlimited public & private repos, in-browser Monaco IDE, and instant 1-click GitHub importer.",
       },
-      { property: "og:title", content: "GitBowl — Your code, in a bowl." },
+      { property: "og:site_name", content: "GitBowl" },
+      { property: "og:type", content: "website" },
+      {
+        property: "og:title",
+        content: "GitBowl — High-Performance Git Code Hosting Platform",
+      },
       {
         property: "og:description",
-        content: "Repositories, commits, forks, stars, zip import and a built-in code editor.",
+        content:
+          "Host, clone, commit, and collaborate with GitBowl. High-speed Git Smart-HTTP hosting, unlimited public & private repositories, in-browser Monaco IDE, and 1-click GitHub importer.",
       },
+      { property: "og:url", content: "https://gitbowl.zone.id/" },
+      { property: "og:image", content: "https://gitbowl.zone.id/og-image.png" },
+      { property: "og:image:width", content: "1200" },
+      { property: "og:image:height", content: "630" },
+      { name: "twitter:card", content: "summary_large_image" },
+      {
+        name: "twitter:title",
+        content: "GitBowl — High-Performance Git Code Hosting Platform",
+      },
+      {
+        name: "twitter:description",
+        content:
+          "Host, clone, commit, and collaborate with GitBowl. High-speed Git Smart-HTTP hosting, unlimited public & private repositories, in-browser Monaco IDE, and 1-click GitHub importer.",
+      },
+      { name: "twitter:image", content: "https://gitbowl.zone.id/og-image.png" },
     ],
+    links: [{ rel: "canonical", href: "https://gitbowl.zone.id/" }],
   }),
   component: HomePage,
 });
