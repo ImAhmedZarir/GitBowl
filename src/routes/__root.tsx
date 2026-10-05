@@ -15,6 +15,7 @@ import { AuthProvider } from "@/lib/auth";
 import { Toaster } from "@/components/ui/sonner";
 import { BowlLogo } from "@/components/BowlLogo";
 import { TopProgressBar } from "@/components/TopProgressBar";
+import { MobileNav } from "@/components/MobileNav";
 import { Search, Home, RefreshCw, Compass } from "lucide-react";
 import {
   GITBOWL_KEYWORDS,
@@ -239,12 +240,19 @@ function RootShell({ children }: { children: ReactNode }) {
 function RootComponent() {
   const { queryClient } = Route.useRouteContext();
 
+  useEffect(() => {
+    if (typeof window !== "undefined" && "serviceWorker" in navigator) {
+      navigator.serviceWorker.register("/sw.js").catch(() => {});
+    }
+  }, []);
+
   return (
     <QueryClientProvider client={queryClient}>
       <AuthProvider>
         <TopProgressBar />
         {/* Required: nested routes render here. Removing <Outlet /> breaks all child routes. */}
         <Outlet />
+        <MobileNav />
         <Toaster />
       </AuthProvider>
     </QueryClientProvider>

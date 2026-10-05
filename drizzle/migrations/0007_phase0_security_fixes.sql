@@ -173,6 +173,22 @@ BEGIN
 END;
 $$;
 
+-- Rename offending users if any exist before adding constraint
+UPDATE public.profiles
+SET username = 'user_' || substr(id::text, 1, 8)
+WHERE public.is_reserved_username(username);
+
 ALTER TABLE public.profiles DROP CONSTRAINT IF EXISTS check_reserved_username;
 ALTER TABLE public.profiles ADD CONSTRAINT check_reserved_username
   CHECK (NOT public.is_reserved_username(username));
+
+-- 6. Rate limits table for Postgres-backed rate limiting (P7)
+CREATE TABLE IF NOT EXISTS public.rate_limits (
+  id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  key text NOT NULL,
+  points integer NOT NULL DEFAULT 1,
+  expire_at timestamptz NOT NULL,
+  created_at timestamptz NOT NULL DEFAULT now()
+);
+CREATE INDEX IF NOT EXISTS idx_rate_limits_key_expire ON public.rate_limits (key, expire_at);
+

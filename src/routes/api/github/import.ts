@@ -2,6 +2,7 @@ import { createFileRoute } from "@tanstack/react-router";
 import JSZip from "jszip";
 import { supabaseAdmin } from "@/integrations/supabase/client.server";
 import { syncFilesToGoogleDrive } from "@/lib/gdrive.server";
+import { createNotification } from "@/lib/notifications.server";
 
 const BINARY_EXT =
   /\.(png|jpe?g|gif|webp|ico|pdf|zip|gz|tar|tgz|7z|rar|mp4|webm|mp3|wav|ogg|wasm|exe|dll|so|dylib|bin|iso|dmg|ttf|otf|woff2?|eot)$/i;
@@ -96,6 +97,8 @@ export const Route = createFileRoute("/api/github/import")({
           }
 
           downloadUrls.push(
+            `https://github.com/${ghOwner}/${ghRepo}/archive/HEAD.zip`,
+            `https://codeload.github.com/${ghOwner}/${ghRepo}/legacy.zip/HEAD`,
             `https://codeload.github.com/${ghOwner}/${ghRepo}/zip/refs/heads/main`,
             `https://codeload.github.com/${ghOwner}/${ghRepo}/zip/refs/heads/master`,
             `https://api.github.com/repos/${ghOwner}/${ghRepo}/zipball/HEAD`,
@@ -237,10 +240,41 @@ export const Route = createFileRoute("/api/github/import")({
             changes: filesToInsert.map((f) => ({ path: f.path, type: "added" })),
           });
 
-          // 8. Mirror imported files to Google Drive Central Storage (background safe)
-          syncFilesToGoogleDrive(username, newRepo.name, filesToInsert.slice(0, 100)).catch((e) =>
-            console.warn("[GDrive] Import sync notice:", e),
-          );
+          // 8. Mirror ALL imported files to central storage (100% of files)
+          const totalBytes = filesToInsert.reduce((acc, f) => acc + (f.size || 0), 0);
+          syncFilesToGoogleDrive(username, newRepo.name, filesToInsert)
+            .then(async (syncResult) => {
+              // Record in storage_backups table for Admin Center visibility
+              await supabaseAdmin.from("storage_backups" as any).insert({
+                repo_id: newRepo.id,
+                sha: "import-head",
+                status: syncResult.success ? "done" : "failed",
+                size: totalBytes,
+                attempts: 1,
+                last_error: syncResult.errors.length
+                  ? syncResult.errors.slice(0, 3).join("; ")
+                  : null,
+              });
+
+              // Create user notification
+              await createNotification({
+                userId,
+                type: "sync",
+                title: `Repository Sync: ${newRepo.name}`,
+                content: `All ${syncResult.syncedCount} of ${filesToInsert.length} files successfully imported and synchronized.`,
+                link: `/${username}/${newRepo.name}`,
+              });
+            })
+            .catch((e) => console.warn("[Sync] Import notice:", e));
+
+          // Also create immediate import notification
+          await createNotification({
+            userId,
+            type: "system",
+            title: `Imported ${ghOwner}/${ghRepo}`,
+            content: `Repository ${newRepo.name} created with ${filesToInsert.length} files. Cloud storage active.`,
+            link: `/${username}/${newRepo.name}`,
+          });
 
           return new Response(
             JSON.stringify({

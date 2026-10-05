@@ -10,37 +10,12 @@ function escapeDriveQuery(val: string): string {
   return (val || "").replace(/\\/g, "\\\\").replace(/'/g, "\\'");
 }
 
-// Load Service Account Credentials
+// Load Service Account Credentials from environment variables only (never from filesystem)
 function loadCredentials() {
   const envEmail = process.env["GDRIVE_CLIENT_EMAIL"] || "";
-  const envKey = process.env["GDRIVE_PRIVATE_KEY"] || "";
+  const envKey = (process.env["GDRIVE_PRIVATE_KEY"] || "").replace(/\\n/g, "\n");
   const rootId =
-    process.env["GDRIVE_SHARED_DRIVE_ID"] ||
-    process.env["GDRIVE_ROOT_FOLDER_ID"] ||
-    "";
-
-  if (envEmail && envKey) {
-    return {
-      client_email: envEmail,
-      private_key: envKey.replace(/\\n/g, "\n"),
-      root_folder_id: rootId,
-    };
-  }
-
-  // Fallback to local service account file if available
-  const filePath = path.resolve(process.cwd(), "google-service-account.json");
-  if (fs.existsSync(filePath)) {
-    try {
-      const data = JSON.parse(fs.readFileSync(filePath, "utf8"));
-      return {
-        client_email: data.client_email || envEmail,
-        private_key: data.private_key || envKey,
-        root_folder_id: data.root_folder_id || rootId,
-      };
-    } catch (e) {
-      console.error("[GDrive] Error parsing service account file:", e);
-    }
-  }
+    process.env["GDRIVE_SHARED_DRIVE_ID"] || process.env["GDRIVE_ROOT_FOLDER_ID"] || "";
 
   return {
     client_email: envEmail,
@@ -454,6 +429,7 @@ export async function checkDriveHealth(): Promise<{
 /**
  * Sync an array of repository files into Google Drive hierarchy:
  * repos/{owner}/{repo}/{filePath}
+ * Highly optimized with folder path hierarchy pre-resolution and parallel upload pool.
  */
 export async function syncFilesToGoogleDrive(
   ownerUsername: string,
@@ -462,17 +438,71 @@ export async function syncFilesToGoogleDrive(
 ): Promise<{ success: boolean; syncedCount: number; errors: string[] }> {
   let syncedCount = 0;
   const errors: string[] = [];
+  if (!files || files.length === 0) {
+    return { success: true, syncedCount: 0, errors: [] };
+  }
 
-  for (const f of files) {
-    try {
-      const key = `repos/${ownerUsername}/${repoName}/${f.path.replace(/^\/+/, "")}`;
-      const buf = Buffer.from(f.content, f.is_binary ? "base64" : "utf8");
-      await putFile(key, buf);
-      syncedCount++;
-    } catch (err: any) {
-      console.warn(`[GDrive] Failed to sync ${f.path}:`, err?.message || err);
-      errors.push(`${f.path}: ${err?.message || "error"}`);
+  try {
+    // 1. Pre-build and ensure unique folder hierarchy
+    const dirSet = new Set<string>();
+    const baseRepoDir = `repos/${ownerUsername}/${repoName}`;
+    dirSet.add(`repos`);
+    dirSet.add(`repos/${ownerUsername}`);
+    dirSet.add(baseRepoDir);
+
+    for (const f of files) {
+      const cleanPath = f.path.replace(/^\/+/, "");
+      const slashIndex = cleanPath.lastIndexOf("/");
+      if (slashIndex !== -1) {
+        const subDir = cleanPath.slice(0, slashIndex);
+        dirSet.add(`${baseRepoDir}/${subDir}`);
+      }
     }
+
+    // Sort folders by depth so parents are always guaranteed to exist first
+    const sortedDirs = Array.from(dirSet).sort((a, b) => {
+      const depthA = (a.match(/\//g) || []).length;
+      const depthB = (b.match(/\//g) || []).length;
+      return depthA - depthB;
+    });
+
+    for (const dir of sortedDirs) {
+      try {
+        await ensureFolderPath(dir);
+      } catch (err: any) {
+        console.warn(`[GDrive] Warning ensuring directory ${dir}:`, err?.message || err);
+      }
+    }
+
+    // 2. Parallel upload pool with concurrency = 6
+    const CONCURRENCY = 6;
+    let fileIndex = 0;
+
+    async function uploadWorker() {
+      while (fileIndex < files.length) {
+        const currentIndex = fileIndex++;
+        const f = files[currentIndex];
+        if (!f) break;
+
+        try {
+          const key = `${baseRepoDir}/${f.path.replace(/^\/+/, "")}`;
+          const buf = Buffer.from(f.content, f.is_binary ? "base64" : "utf8");
+          await putFile(key, buf);
+          syncedCount++;
+        } catch (err: any) {
+          console.warn(`[GDrive] Failed to sync ${f.path}:`, err?.message || err);
+          errors.push(`${f.path}: ${err?.message || "error"}`);
+        }
+      }
+    }
+
+    const workers = Array.from({ length: Math.min(CONCURRENCY, files.length) }, () =>
+      uploadWorker(),
+    );
+    await Promise.all(workers);
+  } catch (outerErr: any) {
+    console.error("[GDrive] syncFilesToGoogleDrive fatal error:", outerErr);
+    errors.push(`fatal: ${outerErr?.message || "sync failed"}`);
   }
 
   return { success: errors.length === 0, syncedCount, errors };

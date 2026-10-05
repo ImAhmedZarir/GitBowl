@@ -47,7 +47,40 @@ export const repoQueryOptions = (owner: string, repoName: string) =>
           console.warn("Repo fetch warning:", error);
           return null;
         }
-        return (data as unknown as RepoMetadata) ?? null;
+
+        if (data) {
+          return (data as unknown as RepoMetadata) ?? null;
+        }
+
+        // Check if owner is an organization
+        const { data: orgData } = await supabase
+          .from("orgs" as any)
+          .select("id, slug, name")
+          .ilike("slug", cleanOwner)
+          .maybeSingle();
+
+        if (orgData) {
+          const { data: orgRepo } = await supabase
+            .from("repositories" as any)
+            .select("*, profiles!repositories_owner_id_fkey(id, username, display_name)")
+            .eq("org_id", (orgData as any).id)
+            .eq("name", repoName)
+            .maybeSingle();
+
+          if (orgRepo) {
+            const orgRow = orgRepo as any;
+            return {
+              ...orgRow,
+              profiles: {
+                id: (orgData as any).id,
+                username: (orgData as any).slug,
+                display_name: (orgData as any).name,
+              },
+            } as unknown as RepoMetadata;
+          }
+        }
+
+        return null;
       } catch (e) {
         console.warn("Repo fetch exception:", e);
         return null;

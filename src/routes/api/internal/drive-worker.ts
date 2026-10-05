@@ -1,6 +1,18 @@
 import { createFileRoute } from "@tanstack/react-router";
 import { supabaseAdmin } from "@/integrations/supabase/client.server";
 import { syncFilesToGoogleDrive } from "@/lib/gdrive.server";
+import crypto from "crypto";
+
+function timingSafeSecretMatch(
+  headerSecret: string | null,
+  expectedSecret: string | undefined,
+): boolean {
+  if (!headerSecret || !expectedSecret) return false;
+  const bufA = Buffer.from(headerSecret, "utf8");
+  const bufB = Buffer.from(expectedSecret, "utf8");
+  if (bufA.length !== bufB.length) return false;
+  return crypto.timingSafeEqual(bufA, bufB);
+}
 
 export const Route = createFileRoute("/api/internal/drive-worker")({
   server: {
@@ -11,16 +23,12 @@ export const Route = createFileRoute("/api/internal/drive-worker")({
         const authHeader = request.headers.get("authorization");
         const expectedSecret = process.env["INTERNAL_WORKER_SECRET"];
 
-        const isSecretValid =
-          expectedSecret &&
-          secretHeader &&
-          secretHeader.length === expectedSecret.length &&
-          secretHeader === expectedSecret;
+        const isSecretValid = timingSafeSecretMatch(secretHeader, expectedSecret);
 
         const isServiceRole =
           authHeader &&
           process.env["SUPABASE_SERVICE_ROLE_KEY"] &&
-          authHeader === `Bearer ${process.env["SUPABASE_SERVICE_ROLE_KEY"]}`;
+          timingSafeSecretMatch(authHeader, `Bearer ${process.env["SUPABASE_SERVICE_ROLE_KEY"]}`);
 
         if (!isSecretValid && !isServiceRole) {
           return new Response(JSON.stringify({ error: "Unauthorized worker access" }), {
@@ -34,7 +42,9 @@ export const Route = createFileRoute("/api/internal/drive-worker")({
           const now = new Date().toISOString();
           const { data: jobs, error: fetchErr } = await supabaseAdmin
             .from("storage_backups")
-            .select("id, repo_id, sha, attempts, repositories(name, profiles!repositories_owner_id_fkey(username))")
+            .select(
+              "id, repo_id, sha, attempts, repositories(name, profiles!repositories_owner_id_fkey(username))",
+            )
             .in("status", ["pending", "failed"])
             .lte("next_attempt_at", now)
             .lt("attempts", 8)
@@ -91,7 +101,9 @@ export const Route = createFileRoute("/api/internal/drive-worker")({
               processed++;
             } catch (err: any) {
               const attempts = (job.attempts || 0) + 1;
-              const nextAttempt = new Date(Date.now() + Math.pow(2, attempts) * 1000 * 60).toISOString();
+              const nextAttempt = new Date(
+                Date.now() + Math.pow(2, attempts) * 1000 * 60,
+              ).toISOString();
               await supabaseAdmin
                 .from("storage_backups")
                 .update({

@@ -7,6 +7,8 @@ export type Profile = {
   username: string;
   display_name: string | null;
   bio: string | null;
+  role?: string | null;
+  is_suspended?: boolean | null;
   created_at: string;
 };
 

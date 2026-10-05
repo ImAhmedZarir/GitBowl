@@ -99,6 +99,22 @@ export const Route = createFileRoute("/api/auth/check-username")({
             );
           }
 
+          // Check if handle is taken by an organization
+          const { data: orgData } = await supabaseAdmin
+            .from("orgs" as any)
+            .select("id, slug")
+            .ilike("slug", username);
+
+          if (orgData && orgData.length > 0) {
+            return new Response(
+              JSON.stringify({
+                available: false,
+                reason: "This handle is already taken by an organization",
+              }),
+              { status: 200, headers: { "Content-Type": "application/json" } },
+            );
+          }
+
           return new Response(JSON.stringify({ available: true }), {
             status: 200,
             headers: { "Content-Type": "application/json" },

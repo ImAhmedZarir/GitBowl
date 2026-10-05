@@ -62,12 +62,37 @@ function NewRepo() {
     search.tab === "import" ? "import" : "create",
   );
 
+  // Owner selection
+  const [selectedOwner, setSelectedOwner] = useState<string>("personal");
+  const [userOrgs, setUserOrgs] = useState<Array<{ id: string; name: string; slug: string }>>([]);
+
   // Manual create form states
   const [name, setName] = useState("");
   const [description, setDescription] = useState("");
   const [isPrivate, setIsPrivate] = useState(false);
   const [uploads, setUploads] = useState<File[]>([]);
   const [busy, setBusy] = useState(false);
+
+  useEffect(() => {
+    async function loadOrgs() {
+      const { data: sessionData } = await supabase.auth.getSession();
+      if (!sessionData.session?.access_token) return;
+      try {
+        const res = await fetch("/api/orgs/", {
+          headers: {
+            Authorization: `Bearer ${sessionData.session.access_token}`,
+          },
+        });
+        if (res.ok) {
+          const json = await res.json();
+          setUserOrgs(json.orgs || []);
+        }
+      } catch (err) {
+        console.warn("Could not load orgs:", err);
+      }
+    }
+    loadOrgs();
+  }, [user]);
 
   // GitHub Import form states
   const [githubUrl, setGithubUrl] = useState("");
@@ -130,10 +155,14 @@ function NewRepo() {
     setBusy(true);
     try {
       const cleanName = name.trim().replace(/\s+/g, "-");
+      const selectedOrg = userOrgs.find((o) => o.slug === selectedOwner);
+      const targetOwnerSlug = selectedOrg ? selectedOrg.slug : profile.username;
+
       const { data: repo, error } = await supabase
-        .from("repositories")
+        .from("repositories" as any)
         .insert({
           owner_id: profile.id,
+          org_id: selectedOrg ? selectedOrg.id : null,
           name: cleanName,
           description: description.trim() || null,
           is_private: isPrivate,
@@ -154,7 +183,7 @@ function NewRepo() {
           const entries = await filesFromZip(file);
           entries.forEach((e) =>
             rows.push({
-              repo_id: repo.id,
+              repo_id: (repo as any).id,
               path: e.path,
               content: e.content,
               is_binary: e.isBinary,
@@ -164,7 +193,7 @@ function NewRepo() {
         } else {
           const { content, isBinary } = await readUploadedFile(file);
           rows.push({
-            repo_id: repo.id,
+            repo_id: (repo as any).id,
             path: file.name,
             content,
             is_binary: isBinary,
@@ -175,32 +204,19 @@ function NewRepo() {
       if (rows.length) {
         const { error: fileError } = await supabase.from("repo_files").insert(rows);
         if (fileError) throw fileError;
-
-        // Mirror initial repository files to Google Drive
-        fetch("/api/repo/sync-drive", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            repoId: repo.id,
-            owner: profile.username,
-            repoName: repo.name,
-            files: rows.map((r) => ({
-              path: r.path,
-              content: r.content,
-              is_binary: r.is_binary,
-            })),
-          }),
-        }).catch((err) => console.warn("[GDrive] New repo sync warning:", err));
       }
       await supabase.from("commits").insert({
-        repo_id: repo.id,
+        repo_id: (repo as any).id,
         author_id: profile.id,
         message: rows.length ? "Initial upload" : "Create repository",
         changes: rows.map((r) => ({ path: r.path, type: "added" })),
       });
 
       toast.success("Repository created");
-      navigate({ to: "/$owner/$repo", params: { owner: profile.username, repo: repo.name } });
+      navigate({
+        to: "/$owner/$repo",
+        params: { owner: targetOwnerSlug, repo: (repo as any).name },
+      });
     } catch (err) {
       toast.error(err instanceof Error ? err.message : "Could not create repository");
     } finally {
@@ -316,18 +332,38 @@ function NewRepo() {
             onSubmit={create}
             className="panel rounded-xl border border-border bg-card p-6 space-y-5 shadow-xs"
           >
-            <div className="space-y-1.5">
-              <Label htmlFor="name" className="text-xs">
-                Repository name
-              </Label>
-              <Input
-                id="name"
-                value={name}
-                onChange={(e) => setName(e.target.value.replace(/[^a-zA-Z0-9._-]/g, "-"))}
-                placeholder="my-project"
-                required
-                className="h-9 text-xs font-mono"
-              />
+            <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+              <div className="space-y-1.5">
+                <Label htmlFor="owner" className="text-xs">
+                  Owner
+                </Label>
+                <select
+                  id="owner"
+                  value={selectedOwner}
+                  onChange={(e) => setSelectedOwner(e.target.value)}
+                  className="flex h-9 w-full rounded-md border border-input bg-background px-3 py-1 text-xs shadow-xs focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring font-medium"
+                >
+                  <option value="personal">{profile?.username || "personal"} (Personal)</option>
+                  {userOrgs.map((o) => (
+                    <option key={o.id} value={o.slug}>
+                      {o.name} (@{o.slug})
+                    </option>
+                  ))}
+                </select>
+              </div>
+              <div className="sm:col-span-2 space-y-1.5">
+                <Label htmlFor="name" className="text-xs">
+                  Repository name
+                </Label>
+                <Input
+                  id="name"
+                  value={name}
+                  onChange={(e) => setName(e.target.value.replace(/[^a-zA-Z0-9._-]/g, "-"))}
+                  placeholder="my-project"
+                  required
+                  className="h-9 text-xs font-mono"
+                />
+              </div>
             </div>
             <div className="space-y-1.5">
               <Label htmlFor="description" className="text-xs">

@@ -1,27 +1,32 @@
-# GitBowl: Your Cloud Coding Hub
+# GitBowl: Cloud Git Hosting & Collaborative Coding
 
-build a github aulternative git provider named "GitBowl"
-where user can upload their files, can commit, can share, can clone, gets a vscode code editor, has zip upload to unzip project, has easy file and folder move/copy within repository, cloning repo, forking, stars
-
-This project was built with [Lovable](https://lovable.dev).
+A high-performance Git provider built with TanStack Start, React 19, Tailwind CSS, Supabase, and Monaco Editor.
 
 **Live app**: https://gitbowl.lovable.app
 
-## Build with Lovable
+## Security Notice: Key Rotation & Hygiene
 
-Continue developing this project in the [Lovable editor](https://lovable.dev/projects/769f1b21-a5d4-401c-91c1-5a3010762705).
-
-- **Ship faster**: describe what you want to build and Lovable handles the code.
-- **Stay in sync**: every change made in Lovable is committed straight to this repository.
-- **Full ownership**: this code is yours. Push to `main` on GitHub and your changes sync back into Lovable, ready for your next prompt.
+1. **Service Account Key Revocation**:
+   Any previously committed Google service account key (with private_key_id starting with `9f9c0d...`) has been permanently deleted from the repository. The key must be revoked in the Google Cloud Console (IAM & Admin -> Service Accounts -> Keys).
+2. **Environment Variables**:
+   Credentials must **never** be checked into the source tree. Store them exclusively via environment variables:
+   - `GDRIVE_CLIENT_EMAIL`: Service account email address
+   - `GDRIVE_PRIVATE_KEY`: Service account private key (with `\n` linebreaks preserved)
+   - `GDRIVE_ROOT_FOLDER_ID`: Shared Drive or Root Folder ID
+   - `ADMIN_EMAILS`: Comma-separated list of whitelisted admin emails (e.g. `ahmedzarir07@gmail.com`)
+   - `GITHUB_WEBHOOK_SECRET`: Secret token used for GitHub webhook HMAC-SHA256 signature verification
 
 ## Development
 
-Prefer working locally? You need Node.js and npm — [install with nvm](https://github.com/nvm-sh/nvm#installing-and-updating).
-
 ```sh
 git clone <this-repository-url>
-cd <repository-name>
-npm i
+cd gitbowl
+npm install
 npm run dev
+```
+
+## Running Acceptance Tests
+
+```sh
+npm test
 ```

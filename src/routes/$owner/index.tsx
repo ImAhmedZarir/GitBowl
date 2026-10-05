@@ -3,6 +3,8 @@ import { createFileRoute, Link, useNavigate } from "@tanstack/react-router";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
 import { Header } from "@/components/Header";
+import { Footer } from "@/components/Footer";
+import { OrgProfileView } from "@/components/OrgProfileView";
 import { RepoCard } from "@/components/RepoCard";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -151,11 +153,52 @@ function OwnerPage() {
         .eq("username", owner)
         .maybeSingle();
 
-      if (!profile) return null;
+      if (!profile) {
+        const { data: org } = await supabase
+          .from("orgs" as any)
+          .select("*")
+          .ilike("slug", owner)
+          .maybeSingle();
+
+        if (!org) return null;
+
+        const [orgReposRes, orgMembersRes, orgTeamsRes] = await Promise.all([
+          supabase
+            .from("repositories" as any)
+            .select("*")
+            .eq("org_id", (org as any).id)
+            .order("updated_at", { ascending: false }),
+          supabase
+            .from("org_members" as any)
+            .select("id, role, user:user_id(id, username, display_name, avatar_url)")
+            .eq("org_id", (org as any).id),
+          supabase
+            .from("teams" as any)
+            .select("id, name, slug, description, privacy, created_at")
+            .eq("org_id", (org as any).id),
+        ]);
+
+        return {
+          isOrg: true,
+          org,
+          profile: {
+            id: (org as any).id,
+            username: (org as any).slug,
+            display_name: (org as any).display_name || (org as any).name,
+            avatar_url: (org as any).avatar_url,
+            bio: (org as any).description,
+          },
+          repos: (orgReposRes.data ?? []) as any[],
+          members: orgMembersRes.data ?? [],
+          teams: orgTeamsRes.data ?? [],
+          commits: [],
+          stars: [],
+        };
+      }
 
       const [reposRes, commitsRes, starsRes] = await Promise.all([
         supabase
-          .from("repositories")
+          .from("repositories" as any)
           .select("*")
           .eq("owner_id", profile.id)
           .order("updated_at", { ascending: false }),
@@ -169,7 +212,7 @@ function OwnerPage() {
 
       return {
         profile,
-        repos: reposRes.data ?? [],
+        repos: (reposRes.data ?? []) as any[],
         commits: commitsRes.data ?? [],
         stars: starsRes.data ?? [],
       };
@@ -281,6 +324,34 @@ function OwnerPage() {
             <Link to="/explore">Explore developers & repositories</Link>
           </Button>
         </div>
+      </div>
+    );
+  }
+
+  if (data.isOrg) {
+    return (
+      <div className="min-h-screen bg-background flex flex-col justify-between">
+        <div>
+          <Header />
+          <OrgProfileView
+            org={(data as any).org}
+            repos={(data as any).repos}
+            members={(data as any).members}
+            teams={(data as any).teams}
+            currentUser={me}
+            currentTab={currentTab}
+            onTabChange={(tab) => {
+              navigate({
+                search: { tab } as any,
+                replace: true,
+              });
+            }}
+            onRefresh={() => {
+              qc.invalidateQueries({ queryKey: ["owner-profile", owner] });
+            }}
+          />
+        </div>
+        <Footer />
       </div>
     );
   }
@@ -770,7 +841,7 @@ function OwnerPage() {
                       No repositories matched your search.
                     </div>
                   ) : (
-                    filteredRepos.map((repo) => (
+                    filteredRepos.map((repo: any) => (
                       <div key={repo.id} className="py-4 space-y-2">
                         <div className="flex items-center gap-2">
                           <Link

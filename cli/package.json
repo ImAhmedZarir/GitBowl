@@ -1,0 +1,16 @@
+{
+  "name": "gitbowl-cli",
+  "version": "1.0.0",
+  "description": "The official command-line interface for GitBowl",
+  "bin": {
+    "bowl": "./bin/bowl.js"
+  },
+  "type": "module",
+  "keywords": [
+    "gitbowl",
+    "cli",
+    "git"
+  ],
+  "author": "GitBowl Team",
+  "license": "MIT"
+}

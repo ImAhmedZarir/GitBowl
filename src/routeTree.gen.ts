@@ -10,16 +10,58 @@
 
 import { Route as rootRouteImport } from './routes/__root'
 import { Route as IndexRouteImport } from './routes/index'
+import { Route as AdminRouteImport } from './routes/admin'
 import { Route as AuthRouteImport } from './routes/auth'
 import { Route as ExploreRouteImport } from './routes/explore'
+import { Route as IssuesRouteImport } from './routes/issues'
 import { Route as NewRouteImport } from './routes/new'
+import { Route as PrivacyRouteImport } from './routes/privacy'
+import { Route as PullsRouteImport } from './routes/pulls'
+import { Route as SearchRouteImport } from './routes/search'
+import { Route as SettingsRouteImport } from './routes/settings'
+import { Route as SitemapDotxmlRouteImport } from './routes/sitemap[.]xml'
+import { Route as TosRouteImport } from './routes/tos'
 import { Route as OwnerIndexRouteImport } from './routes/$owner/index'
 import { Route as OwnerRepoRouteImport } from './routes/$owner/$repo'
+import { Route as ApiHealthRouteImport } from './routes/api/health'
+import { Route as ApiSearchRouteImport } from './routes/api/search'
+import { Route as ApiAdminAuditLogsRouteImport } from './routes/api/admin/audit-logs'
+import { Route as ApiAdminOverviewRouteImport } from './routes/api/admin/overview'
+import { Route as ApiAdminReposRouteImport } from './routes/api/admin/repos'
+import { Route as ApiAdminUsersRouteImport } from './routes/api/admin/users'
+import { Route as ApiAuthCheckUsernameRouteImport } from './routes/api/auth/check-username'
+import { Route as ApiAuthCompleteOnboardingRouteImport } from './routes/api/auth/complete-onboarding'
+import { Route as ApiAuthGithubSyncRouteImport } from './routes/api/auth/github-sync'
+import { Route as ApiAuthGoogleSyncRouteImport } from './routes/api/auth/google-sync'
+import { Route as ApiAuthLoginRouteImport } from './routes/api/auth/login'
+import { Route as ApiAuthTokensRouteImport } from './routes/api/auth/tokens'
+import { Route as ApiAuthUpdateProfileRouteImport } from './routes/api/auth/update-profile'
+import { Route as ApiGithubImportRouteImport } from './routes/api/github/import'
+import { Route as ApiInternalDriveWorkerRouteImport } from './routes/api/internal/drive-worker'
+import { Route as ApiRepoBranchesRouteImport } from './routes/api/repo/branches'
+import { Route as ApiRepoCommitRouteImport } from './routes/api/repo/commit'
+import { Route as ApiRepoInsightsRouteImport } from './routes/api/repo/insights'
+import { Route as ApiRepoPagesConfigRouteImport } from './routes/api/repo/pages-config'
+import { Route as ApiRepoPullMergeRouteImport } from './routes/api/repo/pull-merge'
+import { Route as ApiRepoPullsRouteImport } from './routes/api/repo/pulls'
+import { Route as ApiRepoReleasesRouteImport } from './routes/api/repo/releases'
+import { Route as ApiRepoWebhookDeliveriesRouteImport } from './routes/api/repo/webhook-deliveries'
+import { Route as ApiRepoWebhooksRouteImport } from './routes/api/repo/webhooks'
+import { Route as ApiUserFollowRouteImport } from './routes/api/user/follow'
+import { Route as ApiAdminStorageHealthRouteImport } from './routes/api/admin/storage/health'
+import { Route as ApiAdminStorageRetryRouteImport } from './routes/api/admin/storage/retry'
 import { Route as ApiPublicGitSplatRouteImport } from './routes/api/public/git/$'
+import { Route as PagesOwnerRepoSplatRouteImport } from './routes/pages/$owner/$repo/$'
+import { Route as RawOwnerRepoBranchSplatRouteImport } from './routes/raw/$owner/$repo/$branch/$'
 
 const IndexRoute = IndexRouteImport.update({
   id: '/',
   path: '/',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const AdminRoute = AdminRouteImport.update({
+  id: '/admin',
+  path: '/admin',
   getParentRoute: () => rootRouteImport,
 } as any)
 const AuthRoute = AuthRouteImport.update({
@@ -32,9 +74,44 @@ const ExploreRoute = ExploreRouteImport.update({
   path: '/explore',
   getParentRoute: () => rootRouteImport,
 } as any)
+const IssuesRoute = IssuesRouteImport.update({
+  id: '/issues',
+  path: '/issues',
+  getParentRoute: () => rootRouteImport,
+} as any)
 const NewRoute = NewRouteImport.update({
   id: '/new',
   path: '/new',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const PrivacyRoute = PrivacyRouteImport.update({
+  id: '/privacy',
+  path: '/privacy',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const PullsRoute = PullsRouteImport.update({
+  id: '/pulls',
+  path: '/pulls',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const SearchRoute = SearchRouteImport.update({
+  id: '/search',
+  path: '/search',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const SettingsRoute = SettingsRouteImport.update({
+  id: '/settings',
+  path: '/settings',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const SitemapDotxmlRoute = SitemapDotxmlRouteImport.update({
+  id: '/sitemap.xml',
+  path: '/sitemap.xml',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const TosRoute = TosRouteImport.update({
+  id: '/tos',
+  path: '/tos',
   getParentRoute: () => rootRouteImport,
 } as any)
 const OwnerIndexRoute = OwnerIndexRouteImport.update({
@@ -47,78 +124,484 @@ const OwnerRepoRoute = OwnerRepoRouteImport.update({
   path: '/$owner/$repo',
   getParentRoute: () => rootRouteImport,
 } as any)
+const ApiHealthRoute = ApiHealthRouteImport.update({
+  id: '/api/health',
+  path: '/api/health',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const ApiSearchRoute = ApiSearchRouteImport.update({
+  id: '/api/search',
+  path: '/api/search',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const ApiAdminAuditLogsRoute = ApiAdminAuditLogsRouteImport.update({
+  id: '/api/admin/audit-logs',
+  path: '/api/admin/audit-logs',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const ApiAdminOverviewRoute = ApiAdminOverviewRouteImport.update({
+  id: '/api/admin/overview',
+  path: '/api/admin/overview',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const ApiAdminReposRoute = ApiAdminReposRouteImport.update({
+  id: '/api/admin/repos',
+  path: '/api/admin/repos',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const ApiAdminUsersRoute = ApiAdminUsersRouteImport.update({
+  id: '/api/admin/users',
+  path: '/api/admin/users',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const ApiAuthCheckUsernameRoute = ApiAuthCheckUsernameRouteImport.update({
+  id: '/api/auth/check-username',
+  path: '/api/auth/check-username',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const ApiAuthCompleteOnboardingRoute =
+  ApiAuthCompleteOnboardingRouteImport.update({
+    id: '/api/auth/complete-onboarding',
+    path: '/api/auth/complete-onboarding',
+    getParentRoute: () => rootRouteImport,
+  } as any)
+const ApiAuthGithubSyncRoute = ApiAuthGithubSyncRouteImport.update({
+  id: '/api/auth/github-sync',
+  path: '/api/auth/github-sync',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const ApiAuthGoogleSyncRoute = ApiAuthGoogleSyncRouteImport.update({
+  id: '/api/auth/google-sync',
+  path: '/api/auth/google-sync',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const ApiAuthLoginRoute = ApiAuthLoginRouteImport.update({
+  id: '/api/auth/login',
+  path: '/api/auth/login',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const ApiAuthTokensRoute = ApiAuthTokensRouteImport.update({
+  id: '/api/auth/tokens',
+  path: '/api/auth/tokens',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const ApiAuthUpdateProfileRoute = ApiAuthUpdateProfileRouteImport.update({
+  id: '/api/auth/update-profile',
+  path: '/api/auth/update-profile',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const ApiGithubImportRoute = ApiGithubImportRouteImport.update({
+  id: '/api/github/import',
+  path: '/api/github/import',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const ApiInternalDriveWorkerRoute = ApiInternalDriveWorkerRouteImport.update({
+  id: '/api/internal/drive-worker',
+  path: '/api/internal/drive-worker',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const ApiRepoBranchesRoute = ApiRepoBranchesRouteImport.update({
+  id: '/api/repo/branches',
+  path: '/api/repo/branches',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const ApiRepoCommitRoute = ApiRepoCommitRouteImport.update({
+  id: '/api/repo/commit',
+  path: '/api/repo/commit',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const ApiRepoInsightsRoute = ApiRepoInsightsRouteImport.update({
+  id: '/api/repo/insights',
+  path: '/api/repo/insights',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const ApiRepoPagesConfigRoute = ApiRepoPagesConfigRouteImport.update({
+  id: '/api/repo/pages-config',
+  path: '/api/repo/pages-config',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const ApiRepoPullMergeRoute = ApiRepoPullMergeRouteImport.update({
+  id: '/api/repo/pull-merge',
+  path: '/api/repo/pull-merge',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const ApiRepoPullsRoute = ApiRepoPullsRouteImport.update({
+  id: '/api/repo/pulls',
+  path: '/api/repo/pulls',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const ApiRepoReleasesRoute = ApiRepoReleasesRouteImport.update({
+  id: '/api/repo/releases',
+  path: '/api/repo/releases',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const ApiRepoWebhookDeliveriesRoute =
+  ApiRepoWebhookDeliveriesRouteImport.update({
+    id: '/api/repo/webhook-deliveries',
+    path: '/api/repo/webhook-deliveries',
+    getParentRoute: () => rootRouteImport,
+  } as any)
+const ApiRepoWebhooksRoute = ApiRepoWebhooksRouteImport.update({
+  id: '/api/repo/webhooks',
+  path: '/api/repo/webhooks',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const ApiUserFollowRoute = ApiUserFollowRouteImport.update({
+  id: '/api/user/follow',
+  path: '/api/user/follow',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const ApiAdminStorageHealthRoute = ApiAdminStorageHealthRouteImport.update({
+  id: '/api/admin/storage/health',
+  path: '/api/admin/storage/health',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const ApiAdminStorageRetryRoute = ApiAdminStorageRetryRouteImport.update({
+  id: '/api/admin/storage/retry',
+  path: '/api/admin/storage/retry',
+  getParentRoute: () => rootRouteImport,
+} as any)
 const ApiPublicGitSplatRoute = ApiPublicGitSplatRouteImport.update({
   id: '/api/public/git/$',
   path: '/api/public/git/$',
   getParentRoute: () => rootRouteImport,
 } as any)
+const PagesOwnerRepoSplatRoute = PagesOwnerRepoSplatRouteImport.update({
+  id: '/pages/$owner/$repo/$',
+  path: '/pages/$owner/$repo/$',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const RawOwnerRepoBranchSplatRoute = RawOwnerRepoBranchSplatRouteImport.update({
+  id: '/raw/$owner/$repo/$branch/$',
+  path: '/raw/$owner/$repo/$branch/$',
+  getParentRoute: () => rootRouteImport,
+} as any)
 
 export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
+  '/admin': typeof AdminRoute
   '/auth': typeof AuthRoute
   '/explore': typeof ExploreRoute
+  '/issues': typeof IssuesRoute
   '/new': typeof NewRoute
+  '/privacy': typeof PrivacyRoute
+  '/pulls': typeof PullsRoute
+  '/search': typeof SearchRoute
+  '/settings': typeof SettingsRoute
+  '/sitemap.xml': typeof SitemapDotxmlRoute
+  '/tos': typeof TosRoute
   '/$owner/$repo': typeof OwnerRepoRoute
+  '/api/health': typeof ApiHealthRoute
+  '/api/search': typeof ApiSearchRoute
   '/$owner/': typeof OwnerIndexRoute
+  '/api/admin/audit-logs': typeof ApiAdminAuditLogsRoute
+  '/api/admin/overview': typeof ApiAdminOverviewRoute
+  '/api/admin/repos': typeof ApiAdminReposRoute
+  '/api/admin/users': typeof ApiAdminUsersRoute
+  '/api/auth/check-username': typeof ApiAuthCheckUsernameRoute
+  '/api/auth/complete-onboarding': typeof ApiAuthCompleteOnboardingRoute
+  '/api/auth/github-sync': typeof ApiAuthGithubSyncRoute
+  '/api/auth/google-sync': typeof ApiAuthGoogleSyncRoute
+  '/api/auth/login': typeof ApiAuthLoginRoute
+  '/api/auth/tokens': typeof ApiAuthTokensRoute
+  '/api/auth/update-profile': typeof ApiAuthUpdateProfileRoute
+  '/api/github/import': typeof ApiGithubImportRoute
+  '/api/internal/drive-worker': typeof ApiInternalDriveWorkerRoute
+  '/api/repo/branches': typeof ApiRepoBranchesRoute
+  '/api/repo/commit': typeof ApiRepoCommitRoute
+  '/api/repo/insights': typeof ApiRepoInsightsRoute
+  '/api/repo/pages-config': typeof ApiRepoPagesConfigRoute
+  '/api/repo/pull-merge': typeof ApiRepoPullMergeRoute
+  '/api/repo/pulls': typeof ApiRepoPullsRoute
+  '/api/repo/releases': typeof ApiRepoReleasesRoute
+  '/api/repo/webhook-deliveries': typeof ApiRepoWebhookDeliveriesRoute
+  '/api/repo/webhooks': typeof ApiRepoWebhooksRoute
+  '/api/user/follow': typeof ApiUserFollowRoute
+  '/api/admin/storage/health': typeof ApiAdminStorageHealthRoute
+  '/api/admin/storage/retry': typeof ApiAdminStorageRetryRoute
   '/api/public/git/$': typeof ApiPublicGitSplatRoute
+  '/pages/$owner/$repo/$': typeof PagesOwnerRepoSplatRoute
+  '/raw/$owner/$repo/$branch/$': typeof RawOwnerRepoBranchSplatRoute
 }
 export interface FileRoutesByTo {
   '/': typeof IndexRoute
+  '/admin': typeof AdminRoute
   '/auth': typeof AuthRoute
   '/explore': typeof ExploreRoute
+  '/issues': typeof IssuesRoute
   '/new': typeof NewRoute
+  '/privacy': typeof PrivacyRoute
+  '/pulls': typeof PullsRoute
+  '/search': typeof SearchRoute
+  '/settings': typeof SettingsRoute
+  '/sitemap.xml': typeof SitemapDotxmlRoute
+  '/tos': typeof TosRoute
   '/$owner/$repo': typeof OwnerRepoRoute
+  '/api/health': typeof ApiHealthRoute
+  '/api/search': typeof ApiSearchRoute
   '/$owner': typeof OwnerIndexRoute
+  '/api/admin/audit-logs': typeof ApiAdminAuditLogsRoute
+  '/api/admin/overview': typeof ApiAdminOverviewRoute
+  '/api/admin/repos': typeof ApiAdminReposRoute
+  '/api/admin/users': typeof ApiAdminUsersRoute
+  '/api/auth/check-username': typeof ApiAuthCheckUsernameRoute
+  '/api/auth/complete-onboarding': typeof ApiAuthCompleteOnboardingRoute
+  '/api/auth/github-sync': typeof ApiAuthGithubSyncRoute
+  '/api/auth/google-sync': typeof ApiAuthGoogleSyncRoute
+  '/api/auth/login': typeof ApiAuthLoginRoute
+  '/api/auth/tokens': typeof ApiAuthTokensRoute
+  '/api/auth/update-profile': typeof ApiAuthUpdateProfileRoute
+  '/api/github/import': typeof ApiGithubImportRoute
+  '/api/internal/drive-worker': typeof ApiInternalDriveWorkerRoute
+  '/api/repo/branches': typeof ApiRepoBranchesRoute
+  '/api/repo/commit': typeof ApiRepoCommitRoute
+  '/api/repo/insights': typeof ApiRepoInsightsRoute
+  '/api/repo/pages-config': typeof ApiRepoPagesConfigRoute
+  '/api/repo/pull-merge': typeof ApiRepoPullMergeRoute
+  '/api/repo/pulls': typeof ApiRepoPullsRoute
+  '/api/repo/releases': typeof ApiRepoReleasesRoute
+  '/api/repo/webhook-deliveries': typeof ApiRepoWebhookDeliveriesRoute
+  '/api/repo/webhooks': typeof ApiRepoWebhooksRoute
+  '/api/user/follow': typeof ApiUserFollowRoute
+  '/api/admin/storage/health': typeof ApiAdminStorageHealthRoute
+  '/api/admin/storage/retry': typeof ApiAdminStorageRetryRoute
   '/api/public/git/$': typeof ApiPublicGitSplatRoute
+  '/pages/$owner/$repo/$': typeof PagesOwnerRepoSplatRoute
+  '/raw/$owner/$repo/$branch/$': typeof RawOwnerRepoBranchSplatRoute
 }
 export interface FileRoutesById {
   __root__: typeof rootRouteImport
   '/': typeof IndexRoute
+  '/admin': typeof AdminRoute
   '/auth': typeof AuthRoute
   '/explore': typeof ExploreRoute
+  '/issues': typeof IssuesRoute
   '/new': typeof NewRoute
+  '/privacy': typeof PrivacyRoute
+  '/pulls': typeof PullsRoute
+  '/search': typeof SearchRoute
+  '/settings': typeof SettingsRoute
+  '/sitemap.xml': typeof SitemapDotxmlRoute
+  '/tos': typeof TosRoute
   '/$owner/$repo': typeof OwnerRepoRoute
+  '/api/health': typeof ApiHealthRoute
+  '/api/search': typeof ApiSearchRoute
   '/$owner/': typeof OwnerIndexRoute
+  '/api/admin/audit-logs': typeof ApiAdminAuditLogsRoute
+  '/api/admin/overview': typeof ApiAdminOverviewRoute
+  '/api/admin/repos': typeof ApiAdminReposRoute
+  '/api/admin/users': typeof ApiAdminUsersRoute
+  '/api/auth/check-username': typeof ApiAuthCheckUsernameRoute
+  '/api/auth/complete-onboarding': typeof ApiAuthCompleteOnboardingRoute
+  '/api/auth/github-sync': typeof ApiAuthGithubSyncRoute
+  '/api/auth/google-sync': typeof ApiAuthGoogleSyncRoute
+  '/api/auth/login': typeof ApiAuthLoginRoute
+  '/api/auth/tokens': typeof ApiAuthTokensRoute
+  '/api/auth/update-profile': typeof ApiAuthUpdateProfileRoute
+  '/api/github/import': typeof ApiGithubImportRoute
+  '/api/internal/drive-worker': typeof ApiInternalDriveWorkerRoute
+  '/api/repo/branches': typeof ApiRepoBranchesRoute
+  '/api/repo/commit': typeof ApiRepoCommitRoute
+  '/api/repo/insights': typeof ApiRepoInsightsRoute
+  '/api/repo/pages-config': typeof ApiRepoPagesConfigRoute
+  '/api/repo/pull-merge': typeof ApiRepoPullMergeRoute
+  '/api/repo/pulls': typeof ApiRepoPullsRoute
+  '/api/repo/releases': typeof ApiRepoReleasesRoute
+  '/api/repo/webhook-deliveries': typeof ApiRepoWebhookDeliveriesRoute
+  '/api/repo/webhooks': typeof ApiRepoWebhooksRoute
+  '/api/user/follow': typeof ApiUserFollowRoute
+  '/api/admin/storage/health': typeof ApiAdminStorageHealthRoute
+  '/api/admin/storage/retry': typeof ApiAdminStorageRetryRoute
   '/api/public/git/$': typeof ApiPublicGitSplatRoute
+  '/pages/$owner/$repo/$': typeof PagesOwnerRepoSplatRoute
+  '/raw/$owner/$repo/$branch/$': typeof RawOwnerRepoBranchSplatRoute
 }
 export interface FileRouteTypes {
   fileRoutesByFullPath: FileRoutesByFullPath
   fullPaths:
     | '/'
+    | '/admin'
     | '/auth'
     | '/explore'
+    | '/issues'
     | '/new'
+    | '/privacy'
+    | '/pulls'
+    | '/search'
+    | '/settings'
+    | '/sitemap.xml'
+    | '/tos'
     | '/$owner/$repo'
+    | '/api/health'
+    | '/api/search'
     | '/$owner/'
+    | '/api/admin/audit-logs'
+    | '/api/admin/overview'
+    | '/api/admin/repos'
+    | '/api/admin/users'
+    | '/api/auth/check-username'
+    | '/api/auth/complete-onboarding'
+    | '/api/auth/github-sync'
+    | '/api/auth/google-sync'
+    | '/api/auth/login'
+    | '/api/auth/tokens'
+    | '/api/auth/update-profile'
+    | '/api/github/import'
+    | '/api/internal/drive-worker'
+    | '/api/repo/branches'
+    | '/api/repo/commit'
+    | '/api/repo/insights'
+    | '/api/repo/pages-config'
+    | '/api/repo/pull-merge'
+    | '/api/repo/pulls'
+    | '/api/repo/releases'
+    | '/api/repo/webhook-deliveries'
+    | '/api/repo/webhooks'
+    | '/api/user/follow'
+    | '/api/admin/storage/health'
+    | '/api/admin/storage/retry'
     | '/api/public/git/$'
+    | '/pages/$owner/$repo/$'
+    | '/raw/$owner/$repo/$branch/$'
   fileRoutesByTo: FileRoutesByTo
   to:
     | '/'
+    | '/admin'
     | '/auth'
     | '/explore'
+    | '/issues'
     | '/new'
+    | '/privacy'
+    | '/pulls'
+    | '/search'
+    | '/settings'
+    | '/sitemap.xml'
+    | '/tos'
     | '/$owner/$repo'
+    | '/api/health'
+    | '/api/search'
     | '/$owner'
+    | '/api/admin/audit-logs'
+    | '/api/admin/overview'
+    | '/api/admin/repos'
+    | '/api/admin/users'
+    | '/api/auth/check-username'
+    | '/api/auth/complete-onboarding'
+    | '/api/auth/github-sync'
+    | '/api/auth/google-sync'
+    | '/api/auth/login'
+    | '/api/auth/tokens'
+    | '/api/auth/update-profile'
+    | '/api/github/import'
+    | '/api/internal/drive-worker'
+    | '/api/repo/branches'
+    | '/api/repo/commit'
+    | '/api/repo/insights'
+    | '/api/repo/pages-config'
+    | '/api/repo/pull-merge'
+    | '/api/repo/pulls'
+    | '/api/repo/releases'
+    | '/api/repo/webhook-deliveries'
+    | '/api/repo/webhooks'
+    | '/api/user/follow'
+    | '/api/admin/storage/health'
+    | '/api/admin/storage/retry'
     | '/api/public/git/$'
+    | '/pages/$owner/$repo/$'
+    | '/raw/$owner/$repo/$branch/$'
   id:
     | '__root__'
     | '/'
+    | '/admin'
     | '/auth'
     | '/explore'
+    | '/issues'
     | '/new'
+    | '/privacy'
+    | '/pulls'
+    | '/search'
+    | '/settings'
+    | '/sitemap.xml'
+    | '/tos'
     | '/$owner/$repo'
+    | '/api/health'
+    | '/api/search'
     | '/$owner/'
+    | '/api/admin/audit-logs'
+    | '/api/admin/overview'
+    | '/api/admin/repos'
+    | '/api/admin/users'
+    | '/api/auth/check-username'
+    | '/api/auth/complete-onboarding'
+    | '/api/auth/github-sync'
+    | '/api/auth/google-sync'
+    | '/api/auth/login'
+    | '/api/auth/tokens'
+    | '/api/auth/update-profile'
+    | '/api/github/import'
+    | '/api/internal/drive-worker'
+    | '/api/repo/branches'
+    | '/api/repo/commit'
+    | '/api/repo/insights'
+    | '/api/repo/pages-config'
+    | '/api/repo/pull-merge'
+    | '/api/repo/pulls'
+    | '/api/repo/releases'
+    | '/api/repo/webhook-deliveries'
+    | '/api/repo/webhooks'
+    | '/api/user/follow'
+    | '/api/admin/storage/health'
+    | '/api/admin/storage/retry'
     | '/api/public/git/$'
+    | '/pages/$owner/$repo/$'
+    | '/raw/$owner/$repo/$branch/$'
   fileRoutesById: FileRoutesById
 }
 export interface RootRouteChildren {
   IndexRoute: typeof IndexRoute
+  AdminRoute: typeof AdminRoute
   AuthRoute: typeof AuthRoute
   ExploreRoute: typeof ExploreRoute
+  IssuesRoute: typeof IssuesRoute
   NewRoute: typeof NewRoute
+  PrivacyRoute: typeof PrivacyRoute
+  PullsRoute: typeof PullsRoute
+  SearchRoute: typeof SearchRoute
+  SettingsRoute: typeof SettingsRoute
+  SitemapDotxmlRoute: typeof SitemapDotxmlRoute
+  TosRoute: typeof TosRoute
   OwnerRepoRoute: typeof OwnerRepoRoute
+  ApiHealthRoute: typeof ApiHealthRoute
+  ApiSearchRoute: typeof ApiSearchRoute
   OwnerIndexRoute: typeof OwnerIndexRoute
+  ApiAdminAuditLogsRoute: typeof ApiAdminAuditLogsRoute
+  ApiAdminOverviewRoute: typeof ApiAdminOverviewRoute
+  ApiAdminReposRoute: typeof ApiAdminReposRoute
+  ApiAdminUsersRoute: typeof ApiAdminUsersRoute
+  ApiAuthCheckUsernameRoute: typeof ApiAuthCheckUsernameRoute
+  ApiAuthCompleteOnboardingRoute: typeof ApiAuthCompleteOnboardingRoute
+  ApiAuthGithubSyncRoute: typeof ApiAuthGithubSyncRoute
+  ApiAuthGoogleSyncRoute: typeof ApiAuthGoogleSyncRoute
+  ApiAuthLoginRoute: typeof ApiAuthLoginRoute
+  ApiAuthTokensRoute: typeof ApiAuthTokensRoute
+  ApiAuthUpdateProfileRoute: typeof ApiAuthUpdateProfileRoute
+  ApiGithubImportRoute: typeof ApiGithubImportRoute
+  ApiInternalDriveWorkerRoute: typeof ApiInternalDriveWorkerRoute
+  ApiRepoBranchesRoute: typeof ApiRepoBranchesRoute
+  ApiRepoCommitRoute: typeof ApiRepoCommitRoute
+  ApiRepoInsightsRoute: typeof ApiRepoInsightsRoute
+  ApiRepoPagesConfigRoute: typeof ApiRepoPagesConfigRoute
+  ApiRepoPullMergeRoute: typeof ApiRepoPullMergeRoute
+  ApiRepoPullsRoute: typeof ApiRepoPullsRoute
+  ApiRepoReleasesRoute: typeof ApiRepoReleasesRoute
+  ApiRepoWebhookDeliveriesRoute: typeof ApiRepoWebhookDeliveriesRoute
+  ApiRepoWebhooksRoute: typeof ApiRepoWebhooksRoute
+  ApiUserFollowRoute: typeof ApiUserFollowRoute
+  ApiAdminStorageHealthRoute: typeof ApiAdminStorageHealthRoute
+  ApiAdminStorageRetryRoute: typeof ApiAdminStorageRetryRoute
   ApiPublicGitSplatRoute: typeof ApiPublicGitSplatRoute
+  PagesOwnerRepoSplatRoute: typeof PagesOwnerRepoSplatRoute
+  RawOwnerRepoBranchSplatRoute: typeof RawOwnerRepoBranchSplatRoute
 }
 
 declare module '@tanstack/react-router' {
@@ -128,6 +611,13 @@ declare module '@tanstack/react-router' {
       path: '/'
       fullPath: '/'
       preLoaderRoute: typeof IndexRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/admin': {
+      id: '/admin'
+      path: '/admin'
+      fullPath: '/admin'
+      preLoaderRoute: typeof AdminRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/auth': {
@@ -144,11 +634,60 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof ExploreRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/issues': {
+      id: '/issues'
+      path: '/issues'
+      fullPath: '/issues'
+      preLoaderRoute: typeof IssuesRouteImport
+      parentRoute: typeof rootRouteImport
+    }
     '/new': {
       id: '/new'
       path: '/new'
       fullPath: '/new'
       preLoaderRoute: typeof NewRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/privacy': {
+      id: '/privacy'
+      path: '/privacy'
+      fullPath: '/privacy'
+      preLoaderRoute: typeof PrivacyRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/pulls': {
+      id: '/pulls'
+      path: '/pulls'
+      fullPath: '/pulls'
+      preLoaderRoute: typeof PullsRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/search': {
+      id: '/search'
+      path: '/search'
+      fullPath: '/search'
+      preLoaderRoute: typeof SearchRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/settings': {
+      id: '/settings'
+      path: '/settings'
+      fullPath: '/settings'
+      preLoaderRoute: typeof SettingsRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/sitemap.xml': {
+      id: '/sitemap.xml'
+      path: '/sitemap.xml'
+      fullPath: '/sitemap.xml'
+      preLoaderRoute: typeof SitemapDotxmlRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/tos': {
+      id: '/tos'
+      path: '/tos'
+      fullPath: '/tos'
+      preLoaderRoute: typeof TosRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/$owner/': {
@@ -165,6 +704,195 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof OwnerRepoRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/api/health': {
+      id: '/api/health'
+      path: '/api/health'
+      fullPath: '/api/health'
+      preLoaderRoute: typeof ApiHealthRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/api/search': {
+      id: '/api/search'
+      path: '/api/search'
+      fullPath: '/api/search'
+      preLoaderRoute: typeof ApiSearchRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/api/admin/audit-logs': {
+      id: '/api/admin/audit-logs'
+      path: '/api/admin/audit-logs'
+      fullPath: '/api/admin/audit-logs'
+      preLoaderRoute: typeof ApiAdminAuditLogsRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/api/admin/overview': {
+      id: '/api/admin/overview'
+      path: '/api/admin/overview'
+      fullPath: '/api/admin/overview'
+      preLoaderRoute: typeof ApiAdminOverviewRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/api/admin/repos': {
+      id: '/api/admin/repos'
+      path: '/api/admin/repos'
+      fullPath: '/api/admin/repos'
+      preLoaderRoute: typeof ApiAdminReposRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/api/admin/users': {
+      id: '/api/admin/users'
+      path: '/api/admin/users'
+      fullPath: '/api/admin/users'
+      preLoaderRoute: typeof ApiAdminUsersRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/api/auth/check-username': {
+      id: '/api/auth/check-username'
+      path: '/api/auth/check-username'
+      fullPath: '/api/auth/check-username'
+      preLoaderRoute: typeof ApiAuthCheckUsernameRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/api/auth/complete-onboarding': {
+      id: '/api/auth/complete-onboarding'
+      path: '/api/auth/complete-onboarding'
+      fullPath: '/api/auth/complete-onboarding'
+      preLoaderRoute: typeof ApiAuthCompleteOnboardingRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/api/auth/github-sync': {
+      id: '/api/auth/github-sync'
+      path: '/api/auth/github-sync'
+      fullPath: '/api/auth/github-sync'
+      preLoaderRoute: typeof ApiAuthGithubSyncRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/api/auth/google-sync': {
+      id: '/api/auth/google-sync'
+      path: '/api/auth/google-sync'
+      fullPath: '/api/auth/google-sync'
+      preLoaderRoute: typeof ApiAuthGoogleSyncRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/api/auth/login': {
+      id: '/api/auth/login'
+      path: '/api/auth/login'
+      fullPath: '/api/auth/login'
+      preLoaderRoute: typeof ApiAuthLoginRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/api/auth/tokens': {
+      id: '/api/auth/tokens'
+      path: '/api/auth/tokens'
+      fullPath: '/api/auth/tokens'
+      preLoaderRoute: typeof ApiAuthTokensRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/api/auth/update-profile': {
+      id: '/api/auth/update-profile'
+      path: '/api/auth/update-profile'
+      fullPath: '/api/auth/update-profile'
+      preLoaderRoute: typeof ApiAuthUpdateProfileRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/api/github/import': {
+      id: '/api/github/import'
+      path: '/api/github/import'
+      fullPath: '/api/github/import'
+      preLoaderRoute: typeof ApiGithubImportRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/api/internal/drive-worker': {
+      id: '/api/internal/drive-worker'
+      path: '/api/internal/drive-worker'
+      fullPath: '/api/internal/drive-worker'
+      preLoaderRoute: typeof ApiInternalDriveWorkerRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/api/repo/branches': {
+      id: '/api/repo/branches'
+      path: '/api/repo/branches'
+      fullPath: '/api/repo/branches'
+      preLoaderRoute: typeof ApiRepoBranchesRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/api/repo/commit': {
+      id: '/api/repo/commit'
+      path: '/api/repo/commit'
+      fullPath: '/api/repo/commit'
+      preLoaderRoute: typeof ApiRepoCommitRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/api/repo/insights': {
+      id: '/api/repo/insights'
+      path: '/api/repo/insights'
+      fullPath: '/api/repo/insights'
+      preLoaderRoute: typeof ApiRepoInsightsRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/api/repo/pages-config': {
+      id: '/api/repo/pages-config'
+      path: '/api/repo/pages-config'
+      fullPath: '/api/repo/pages-config'
+      preLoaderRoute: typeof ApiRepoPagesConfigRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/api/repo/pull-merge': {
+      id: '/api/repo/pull-merge'
+      path: '/api/repo/pull-merge'
+      fullPath: '/api/repo/pull-merge'
+      preLoaderRoute: typeof ApiRepoPullMergeRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/api/repo/pulls': {
+      id: '/api/repo/pulls'
+      path: '/api/repo/pulls'
+      fullPath: '/api/repo/pulls'
+      preLoaderRoute: typeof ApiRepoPullsRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/api/repo/releases': {
+      id: '/api/repo/releases'
+      path: '/api/repo/releases'
+      fullPath: '/api/repo/releases'
+      preLoaderRoute: typeof ApiRepoReleasesRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/api/repo/webhook-deliveries': {
+      id: '/api/repo/webhook-deliveries'
+      path: '/api/repo/webhook-deliveries'
+      fullPath: '/api/repo/webhook-deliveries'
+      preLoaderRoute: typeof ApiRepoWebhookDeliveriesRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/api/repo/webhooks': {
+      id: '/api/repo/webhooks'
+      path: '/api/repo/webhooks'
+      fullPath: '/api/repo/webhooks'
+      preLoaderRoute: typeof ApiRepoWebhooksRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/api/user/follow': {
+      id: '/api/user/follow'
+      path: '/api/user/follow'
+      fullPath: '/api/user/follow'
+      preLoaderRoute: typeof ApiUserFollowRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/api/admin/storage/health': {
+      id: '/api/admin/storage/health'
+      path: '/api/admin/storage/health'
+      fullPath: '/api/admin/storage/health'
+      preLoaderRoute: typeof ApiAdminStorageHealthRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/api/admin/storage/retry': {
+      id: '/api/admin/storage/retry'
+      path: '/api/admin/storage/retry'
+      fullPath: '/api/admin/storage/retry'
+      preLoaderRoute: typeof ApiAdminStorageRetryRouteImport
+      parentRoute: typeof rootRouteImport
+    }
     '/api/public/git/$': {
       id: '/api/public/git/$'
       path: '/api/public/git/$'
@@ -172,17 +900,68 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof ApiPublicGitSplatRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/pages/$owner/$repo/$': {
+      id: '/pages/$owner/$repo/$'
+      path: '/pages/$owner/$repo/$'
+      fullPath: '/pages/$owner/$repo/$'
+      preLoaderRoute: typeof PagesOwnerRepoSplatRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/raw/$owner/$repo/$branch/$': {
+      id: '/raw/$owner/$repo/$branch/$'
+      path: '/raw/$owner/$repo/$branch/$'
+      fullPath: '/raw/$owner/$repo/$branch/$'
+      preLoaderRoute: typeof RawOwnerRepoBranchSplatRouteImport
+      parentRoute: typeof rootRouteImport
+    }
   }
 }
 
 const rootRouteChildren: RootRouteChildren = {
   IndexRoute: IndexRoute,
+  AdminRoute: AdminRoute,
   AuthRoute: AuthRoute,
   ExploreRoute: ExploreRoute,
+  IssuesRoute: IssuesRoute,
   NewRoute: NewRoute,
+  PrivacyRoute: PrivacyRoute,
+  PullsRoute: PullsRoute,
+  SearchRoute: SearchRoute,
+  SettingsRoute: SettingsRoute,
+  SitemapDotxmlRoute: SitemapDotxmlRoute,
+  TosRoute: TosRoute,
   OwnerRepoRoute: OwnerRepoRoute,
+  ApiHealthRoute: ApiHealthRoute,
+  ApiSearchRoute: ApiSearchRoute,
   OwnerIndexRoute: OwnerIndexRoute,
+  ApiAdminAuditLogsRoute: ApiAdminAuditLogsRoute,
+  ApiAdminOverviewRoute: ApiAdminOverviewRoute,
+  ApiAdminReposRoute: ApiAdminReposRoute,
+  ApiAdminUsersRoute: ApiAdminUsersRoute,
+  ApiAuthCheckUsernameRoute: ApiAuthCheckUsernameRoute,
+  ApiAuthCompleteOnboardingRoute: ApiAuthCompleteOnboardingRoute,
+  ApiAuthGithubSyncRoute: ApiAuthGithubSyncRoute,
+  ApiAuthGoogleSyncRoute: ApiAuthGoogleSyncRoute,
+  ApiAuthLoginRoute: ApiAuthLoginRoute,
+  ApiAuthTokensRoute: ApiAuthTokensRoute,
+  ApiAuthUpdateProfileRoute: ApiAuthUpdateProfileRoute,
+  ApiGithubImportRoute: ApiGithubImportRoute,
+  ApiInternalDriveWorkerRoute: ApiInternalDriveWorkerRoute,
+  ApiRepoBranchesRoute: ApiRepoBranchesRoute,
+  ApiRepoCommitRoute: ApiRepoCommitRoute,
+  ApiRepoInsightsRoute: ApiRepoInsightsRoute,
+  ApiRepoPagesConfigRoute: ApiRepoPagesConfigRoute,
+  ApiRepoPullMergeRoute: ApiRepoPullMergeRoute,
+  ApiRepoPullsRoute: ApiRepoPullsRoute,
+  ApiRepoReleasesRoute: ApiRepoReleasesRoute,
+  ApiRepoWebhookDeliveriesRoute: ApiRepoWebhookDeliveriesRoute,
+  ApiRepoWebhooksRoute: ApiRepoWebhooksRoute,
+  ApiUserFollowRoute: ApiUserFollowRoute,
+  ApiAdminStorageHealthRoute: ApiAdminStorageHealthRoute,
+  ApiAdminStorageRetryRoute: ApiAdminStorageRetryRoute,
   ApiPublicGitSplatRoute: ApiPublicGitSplatRoute,
+  PagesOwnerRepoSplatRoute: PagesOwnerRepoSplatRoute,
+  RawOwnerRepoBranchSplatRoute: RawOwnerRepoBranchSplatRoute,
 }
 export const routeTree = rootRouteImport
   ._addFileChildren(rootRouteChildren)

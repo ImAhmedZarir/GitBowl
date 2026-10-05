@@ -178,6 +178,8 @@ export type Database = {
           created_at: string;
           display_name: string | null;
           id: string;
+          is_suspended?: boolean;
+          role?: string;
           username: string;
         };
         Insert: {
@@ -185,6 +187,8 @@ export type Database = {
           created_at?: string;
           display_name?: string | null;
           id: string;
+          is_suspended?: boolean;
+          role?: string;
           username: string;
         };
         Update: {
@@ -192,6 +196,8 @@ export type Database = {
           created_at?: string;
           display_name?: string | null;
           id?: string;
+          is_suspended?: boolean;
+          role?: string;
           username?: string;
         };
         Relationships: [];

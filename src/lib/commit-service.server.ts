@@ -14,7 +14,7 @@ export interface CommitChangesParams {
   repoId: string;
   authHeader: string | null;
   message: string;
-  files: CommitFileChange[];
+  files?: CommitFileChange[];
   expectedHeadSha?: string | null;
   branch?: string;
 }
@@ -126,10 +126,10 @@ export class CommitError extends Error {
  * Executes an atomic, authenticated commit with optimistic concurrency control.
  */
 export async function commitChanges(params: CommitChangesParams) {
-  const { repoId, authHeader, message, files, expectedHeadSha } = params;
+  const { repoId, authHeader, message, expectedHeadSha } = params;
+  const files = params.files || [];
 
   if (!repoId) throw new CommitError("Repository ID is required", 400);
-  if (!files || files.length === 0) throw new CommitError("No changed files to commit", 400);
 
   // 1. Strict Authentication
   const user = await resolveAuthUser(authHeader);
@@ -228,11 +228,76 @@ export async function commitChanges(params: CommitChangesParams) {
     created_at: now,
   });
 
+  // 9. Dispatch Webhooks
+  try {
+    const { dispatchRepoWebhooks } = await import("@/lib/webhooks.server");
+    void dispatchRepoWebhooks({
+      repoId,
+      event: "push",
+      payload: {
+        ref: `refs/heads/${params.branch || repo.default_branch || "main"}`,
+        before: repo.head_sha || "0000000000000000000000000000000000000000",
+        after: newCommitSha,
+        repository: { id: repo.id, name: repo.name },
+        pusher: { id: user.id, username: user.username, email: user.email },
+        commits: [
+          {
+            id: newCommitSha,
+            message: message.trim(),
+            timestamp: now,
+            author: { username: user.username, email: user.email },
+          },
+        ],
+      },
+    });
+  } catch (webhookErr) {
+    console.error("[Commit] Failed to dispatch webhooks:", webhookErr);
+  }
+
   return {
     success: true,
     commitId: newCommit.id,
     sha: newCommitSha,
+    commitSha: newCommitSha,
     commit: newCommit,
     filesCount: files.length,
   };
+}
+
+export async function createCommit(params: {
+  repoId: string;
+  authorId: string;
+  branch?: string;
+  message: string;
+  files: CommitFileChange[];
+}): Promise<{ commitId: string }> {
+  for (const f of params.files) {
+    if (f.content !== undefined) {
+      await supabaseAdmin.from("repo_files" as any).upsert(
+        {
+          repo_id: params.repoId,
+          path: f.path,
+          content: f.content,
+          is_binary: !!f.is_binary,
+          size: f.content.length,
+          updated_at: new Date().toISOString(),
+        },
+        { onConflict: "repo_id,path" },
+      );
+    }
+  }
+
+  const { data: commitRow, error } = await supabaseAdmin
+    .from("commits" as any)
+    .insert({
+      repo_id: params.repoId,
+      author_id: params.authorId,
+      message: params.message,
+      changes: params.files.map((f) => ({ path: f.path, type: "modified" })),
+    })
+    .select()
+    .single();
+
+  if (error) throw error;
+  return { commitId: (commitRow as any).id };
 }

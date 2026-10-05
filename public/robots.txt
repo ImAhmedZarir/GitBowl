@@ -1,42 +1,24 @@
+# GitBowl robots.txt  (replace gitbowl.zone.id with your final domain)
 User-agent: *
 Allow: /
 Disallow: /api/
+Disallow: /admin
+Disallow: /settings
+Disallow: /auth
+Disallow: /new
+Disallow: /search
+Disallow: /notifications
+Disallow: /issues
+Disallow: /pulls
 
-# Explicitly allow primary search engines
-User-agent: Googlebot
-Allow: /
-
-User-agent: Bingbot
-Allow: /
-
-User-agent: Applebot
-Allow: /
-
-User-agent: Twitterbot
-Allow: /
-
-User-agent: facebookexternalhit
-Allow: /
-
-# Explicitly allow AI Search Engines & Crawlers
+# AI answer engines (remove these blocks if you do not want AI crawling)
 User-agent: GPTBot
 Allow: /
-
-User-agent: ChatGPT-User
-Allow: /
-
 User-agent: PerplexityBot
 Allow: /
-
 User-agent: ClaudeBot
 Allow: /
-
 User-agent: Google-Extended
 Allow: /
 
-User-agent: CCBot
-Allow: /
-
-# Host & Sitemap definition
-Host: http://gitbowl.zone.id/
 Sitemap: https://gitbowl.zone.id/sitemap.xml

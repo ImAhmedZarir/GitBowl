@@ -77,14 +77,25 @@ function DashboardView() {
       try {
         const { data, error } = await supabase
           .from("repositories")
-          .select("*, profiles!repositories_owner_id_fkey(username)")
+          .select("*, profiles(username)")
           .eq("owner_id", user.id)
           .order("updated_at", { ascending: false });
         if (error) {
-          console.warn("Could not load user repos:", error.message);
-          return [];
+          // Fallback without join
+          const { data: rawData } = await supabase
+            .from("repositories")
+            .select("*")
+            .eq("owner_id", user.id)
+            .order("updated_at", { ascending: false });
+          return (rawData || []).map((r: any) => ({
+            ...r,
+            profiles: { username: profile?.username || "you" },
+          }));
         }
-        return data ?? [];
+        return (data ?? []).map((r: any) => ({
+          ...r,
+          profiles: r.profiles || { username: profile?.username || "you" },
+        }));
       } catch (err) {
         console.warn("User repos error:", err);
         return [];

@@ -44,20 +44,41 @@ function isH3SwallowedErrorBody(body: string): boolean {
   }
 }
 
-// Map `https://host/<owner>/<repo>.git/...` onto the git endpoint so plain `git clone host/user/repo.git` works.
+// Map `https://host/<owner>/<repo>.git/...` (and `/<owner>/<repo>/info/...`) onto the git endpoint so plain git operations work.
 function rewriteGitUrl(request: Request): Request | Response {
   const url = new URL(request.url);
-  const m = url.pathname.match(/^\/([^/]+)\/([^/]+)\.git(\/.*)?$/);
-  if (!m) return request;
-  if (!m[3] || m[3] === "/") return Response.redirect(`${url.origin}/${m[1]}/${m[2]}`, 302);
-  url.pathname = `/api/public/git/${m[1]}/${m[2]}.git${m[3]}`;
-  return new Request(url.toString(), {
-    method: request.method,
-    headers: request.headers,
-    body: request.method === "GET" || request.method === "HEAD" ? undefined : request.body,
-    // @ts-expect-error duplex is required for streaming bodies in Node
-    duplex: "half",
-  });
+
+  // Case 1: URL with .git
+  const gitMatch = url.pathname.match(/^\/([^/]+)\/([^/]+)\.git(\/.*)?$/);
+  if (gitMatch) {
+    if (!gitMatch[3] || gitMatch[3] === "/")
+      return Response.redirect(`${url.origin}/${gitMatch[1]}/${gitMatch[2]}`, 302);
+    url.pathname = `/api/public/git/${gitMatch[1]}/${gitMatch[2]}.git${gitMatch[3]}`;
+    return new Request(url.toString(), {
+      method: request.method,
+      headers: request.headers,
+      body: request.method === "GET" || request.method === "HEAD" ? undefined : request.body,
+      // @ts-expect-error duplex is required for streaming bodies in Node
+      duplex: "half",
+    });
+  }
+
+  // Case 2: URL without .git for Smart HTTP and Git LFS paths
+  const plainMatch = url.pathname.match(
+    /^\/([^/]+)\/([^/]+)\/(info\/refs|git-upload-pack|git-receive-pack|info\/lfs\/.*)$/,
+  );
+  if (plainMatch) {
+    url.pathname = `/api/public/git/${plainMatch[1]}/${plainMatch[2]}/${plainMatch[3]}`;
+    return new Request(url.toString(), {
+      method: request.method,
+      headers: request.headers,
+      body: request.method === "GET" || request.method === "HEAD" ? undefined : request.body,
+      // @ts-expect-error duplex is required for streaming bodies in Node
+      duplex: "half",
+    });
+  }
+
+  return request;
 }
 
 export default {

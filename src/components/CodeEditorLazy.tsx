@@ -36,10 +36,10 @@ export function CodeEditorLazy({
       <MonacoEditor
         height={height}
         language={language}
-        path={path}
+        {...(path ? { path } : {})}
         value={value}
         theme={theme}
-        onChange={onChange}
+        {...(onChange ? { onChange } : {})}
         options={{
           readOnly,
           minimap: { enabled: false },

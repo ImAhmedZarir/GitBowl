@@ -9,6 +9,7 @@ import {
   ChevronRight,
   CircleDot,
   CircleCheck,
+  Plus,
   Code2,
   Copy,
   Download,
@@ -18,9 +19,14 @@ import {
   FolderOpen,
   GitCommit,
   GitFork,
+  GitPullRequest,
+  GitMerge,
+  GitBranch,
   History,
   Lock,
   Globe,
+  ExternalLink,
+  Radio,
   MoreHorizontal,
   Pencil,
   Settings,
@@ -30,17 +36,21 @@ import {
   Upload,
   Undo2,
   Eye,
+  HardDrive,
   Loader2,
   PanelLeft,
   Terminal,
   KeyRound,
   Check,
   Search,
+  AlertCircle,
+  RefreshCw,
 } from "lucide-react";
 import { supabase } from "@/integrations/supabase/client";
 import { Header } from "@/components/Header";
 import { Footer } from "@/components/Footer";
 import { Button } from "@/components/ui/button";
+import { Badge } from "@/components/ui/badge";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { Label } from "@/components/ui/label";
@@ -80,11 +90,11 @@ import {
 } from "@/lib/repo-queries";
 import { CodeEditorLazy } from "@/components/CodeEditorLazy";
 
-type Tab = "code" | "issues" | "commits" | "settings";
+type Tab = "code" | "issues" | "pulls" | "commits" | "settings";
 
 export const Route = createFileRoute("/$owner/$repo")({
   validateSearch: (s: Record<string, unknown>): { tab?: Tab | undefined } => ({
-    tab: ["code", "issues", "commits", "settings"].includes(s["tab"] as string)
+    tab: ["code", "issues", "pulls", "commits", "settings"].includes(s["tab"] as string)
       ? (s["tab"] as Tab)
       : undefined,
   }),
@@ -123,7 +133,7 @@ function timeAgo(date: string) {
 function RepoPage() {
   const { owner, repo: repoName } = Route.useParams();
   const search = Route.useSearch();
-  const navigate = useNavigate();
+  const navigate = Route.useNavigate();
   const { user, profile } = useAuth();
   const qc = useQueryClient();
 
@@ -164,6 +174,23 @@ function RepoPage() {
         .eq("user_id", user!.id)
         .maybeSingle();
       return !!s;
+    },
+    staleTime: 1000 * 30,
+  });
+
+  // GitHub Sync Status query
+  const { data: syncConfig } = useQuery({
+    queryKey: ["repo-github-sync", repo?.id],
+    enabled: typeof window !== "undefined" && !!repo?.id,
+    queryFn: async () => {
+      try {
+        const res = await fetch(`/api/repo/github-sync?repoId=${repo!.id}`);
+        if (!res.ok) return null;
+        const json = await res.json();
+        return json.config || null;
+      } catch {
+        return null;
+      }
     },
     staleTime: 1000 * 30,
   });
@@ -292,6 +319,33 @@ function RepoPage() {
                   <Globe className="h-3 w-3" /> Public
                 </span>
               )}
+
+              {/* GitHub Sync Status Badge */}
+              {syncConfig && (
+                <>
+                  {syncConfig.sync_status === "synced" && (
+                    <span
+                      title={`Synced with ${syncConfig.github_owner}/${syncConfig.github_repo}`}
+                      className="flex items-center gap-1 rounded-full border border-emerald-500/20 bg-emerald-500/10 px-2 py-0.5 text-[11px] font-medium text-emerald-500"
+                    >
+                      <Check className="h-3 w-3" /> GitHub Synced
+                    </span>
+                  )}
+                  {syncConfig.sync_status === "syncing" && (
+                    <span className="flex items-center gap-1 rounded-full border border-blue-500/20 bg-blue-500/10 px-2 py-0.5 text-[11px] font-medium text-blue-500">
+                      <RefreshCw className="h-3 w-3 animate-spin" /> Syncing...
+                    </span>
+                  )}
+                  {syncConfig.sync_status === "error" && (
+                    <span
+                      title={syncConfig.last_error || "Sync error"}
+                      className="flex items-center gap-1 rounded-full border border-destructive/20 bg-destructive/10 px-2 py-0.5 text-[11px] font-medium text-destructive cursor-help"
+                    >
+                      <AlertCircle className="h-3 w-3" /> Sync Failed
+                    </span>
+                  )}
+                </>
+              )}
             </div>
 
             {/* Watch / Fork / Star Buttons */}
@@ -353,13 +407,18 @@ function RepoPage() {
               <History className="h-4 w-4" />
               <span>Commits</span>
             </button>
-            <Link
-              to="/pulls"
-              className="flex items-center gap-1.5 border-b-2 border-transparent px-3 py-2 text-muted-foreground hover:border-border hover:text-foreground transition-colors"
+            <button
+              type="button"
+              onClick={() => switchTab("pulls")}
+              className={`flex items-center gap-1.5 border-b-2 px-3 py-2 transition-colors ${
+                activeTab === "pulls"
+                  ? "border-primary text-foreground font-semibold"
+                  : "border-transparent text-muted-foreground hover:border-border hover:text-foreground"
+              }`}
             >
-              <GitFork className="h-4 w-4" />
+              <GitPullRequest className="h-4 w-4" />
               <span>Pull requests</span>
-            </Link>
+            </button>
             {isOwner && (
               <button
                 type="button"
@@ -399,6 +458,7 @@ function RepoPage() {
           />
         )}
         {activeTab === "issues" && <IssuesTab repoId={repo.id} />}
+        {activeTab === "pulls" && <PullsTab repo={repo} isOwner={isOwner} />}
         {activeTab === "commits" && <CommitsTab repoId={repo.id} />}
         {activeTab === "settings" && isOwner && <SettingsTab repo={repo} owner={owner} />}
       </main>
@@ -423,6 +483,7 @@ interface CodeTabProps {
 
 function CodeTab({ repo, filesMeta, loadingFiles, isOwner, authorId, onSaved }: CodeTabProps) {
   const qc = useQueryClient();
+  const [activeBranch, setActiveBranch] = useState(repo.default_branch || "main");
   const [activePath, setActivePath] = useState<string | null>(null);
   const [openFolders, setOpenFolders] = useState<Set<string>>(new Set());
   const [mobileDrawerOpen, setMobileDrawerOpen] = useState(false);
@@ -705,11 +766,12 @@ function CodeTab({ repo, filesMeta, loadingFiles, isOwner, authorId, onSaved }: 
           </Button>
 
           {/* Branch selector */}
-          <Button variant="outline" size="sm" className="h-8 gap-1.5 text-xs font-semibold">
-            <GitCommit className="h-3.5 w-3.5 text-muted-foreground" />
-            <span>{repo.default_branch || "main"}</span>
-            <ChevronDown className="h-3 w-3 opacity-60" />
-          </Button>
+          <BranchSwitcher
+            repoId={repo.id}
+            currentBranch={activeBranch}
+            onSelectBranch={setActiveBranch}
+            isOwner={isOwner}
+          />
 
           {/* Add file button (+) */}
           {isOwner && (
@@ -832,6 +894,14 @@ function CodeTab({ repo, filesMeta, loadingFiles, isOwner, authorId, onSaved }: 
                   <span className="hidden sm:inline text-muted-foreground text-[11px] ml-1">
                     in {repo.default_branch || "main"}
                   </span>
+                  {currentContent.startsWith("version https://git-lfs.github.com/spec/v1") && (
+                    <Badge
+                      variant="outline"
+                      className="text-[10px] bg-sky-500/10 text-sky-500 border-sky-500/30"
+                    >
+                      Git LFS
+                    </Badge>
+                  )}
                 </div>
 
                 {/* Right: Actions & settings */}
@@ -902,6 +972,36 @@ function CodeTab({ repo, filesMeta, loadingFiles, isOwner, authorId, onSaved }: 
                 {loadingFileContent && !currentContent ? (
                   <div className="flex h-full items-center justify-center p-8">
                     <Loader2 className="h-6 w-6 animate-spin text-primary" />
+                  </div>
+                ) : currentContent.startsWith("version https://git-lfs.github.com/spec/v1") ? (
+                  <div className="flex h-full flex-col items-center justify-center p-8 text-center space-y-4">
+                    <div className="h-12 w-12 rounded-full bg-sky-500/10 text-sky-500 flex items-center justify-center">
+                      <HardDrive className="h-6 w-6" />
+                    </div>
+                    <div className="space-y-1">
+                      <h4 className="text-sm font-semibold text-foreground">Stored with Git LFS</h4>
+                      <p className="text-xs text-muted-foreground font-mono">
+                        SHA-256:{" "}
+                        {currentContent.match(/oid sha256:([0-9a-fA-F]{64})/)?.[1] || "..."}
+                      </p>
+                      <p className="text-xs text-muted-foreground">
+                        Size:{" "}
+                        {(
+                          (Number(currentContent.match(/size (\d+)/)?.[1]) || 0) /
+                          1024 /
+                          1024
+                        ).toFixed(2)}{" "}
+                        MB
+                      </p>
+                    </div>
+                    <a
+                      href={`/api/public/git/${repo.profiles?.username}/${repo.name}/info/lfs/objects/${currentContent.match(/oid sha256:([0-9a-fA-F]{64})/)?.[1]}`}
+                      download
+                      className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-md text-xs font-medium bg-sky-600 hover:bg-sky-500 text-white"
+                    >
+                      <Download className="h-3.5 w-3.5" />
+                      <span>Download raw LFS file</span>
+                    </a>
                   </div>
                 ) : isBinary ? (
                   <div className="flex h-full flex-col items-center justify-center p-8 text-center text-muted-foreground">
@@ -1277,7 +1377,7 @@ function IssuesTab({ repoId }: { repoId: string }) {
       const nextNum = (issues?.length ?? 0) + 1;
       await supabase.from("issues").insert({
         repo_id: repoId,
-        author_id: user?.id,
+        author_id: user?.id ?? null,
         number: nextNum,
         title: title.trim(),
         body: body.trim(),
@@ -1347,6 +1447,550 @@ function IssuesTab({ repoId }: { repoId: string }) {
           <p className="p-8 text-center text-xs text-muted-foreground">No open issues found.</p>
         )}
       </div>
+    </div>
+  );
+}
+
+/* -------------------------------------------------------------------------- */
+/*                               BRANCH SWITCHER                              */
+/* -------------------------------------------------------------------------- */
+
+function BranchSwitcher({
+  repoId,
+  currentBranch,
+  onSelectBranch,
+  isOwner,
+}: {
+  repoId: string;
+  currentBranch: string;
+  onSelectBranch: (b: string) => void;
+  isOwner: boolean;
+}) {
+  const [open, setOpen] = useState(false);
+  const [search, setSearch] = useState("");
+  const [creating, setCreating] = useState(false);
+  const qc = useQueryClient();
+
+  const { data: branches = [] } = useQuery({
+    queryKey: ["repo-branches", repoId],
+    queryFn: async () => {
+      const res = await fetch(`/api/repo/branches?repoId=${repoId}`);
+      if (!res.ok) return [];
+      const json = await res.json();
+      return json.branches || [];
+    },
+    staleTime: 1000 * 30,
+  });
+
+  const filtered = branches.filter((b: any) =>
+    b.name.toLowerCase().includes(search.toLowerCase().trim()),
+  );
+
+  const exactMatch = branches.some(
+    (b: any) => b.name.toLowerCase() === search.toLowerCase().trim(),
+  );
+
+  async function handleCreateBranch() {
+    if (!search.trim()) return;
+    setCreating(true);
+    try {
+      const { data } = await supabase.auth.getSession();
+      const token = data?.session?.access_token || "";
+      const res = await fetch("/api/repo/branches", {
+        method: "POST",
+        headers: {
+          Authorization: `Bearer ${token}`,
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          repoId,
+          branchName: search.trim(),
+        }),
+      });
+      const resData = await res.json();
+      if (!res.ok) throw new Error(resData.error || "Failed to create branch");
+      toast.success(`Created branch "${search.trim()}"`);
+      qc.invalidateQueries({ queryKey: ["repo-branches", repoId] });
+      onSelectBranch(search.trim());
+      setOpen(false);
+      setSearch("");
+    } catch (e: any) {
+      toast.error(e.message || "Failed to create branch");
+    } finally {
+      setCreating(false);
+    }
+  }
+
+  return (
+    <DropdownMenu open={open} onOpenChange={setOpen}>
+      <DropdownMenuTrigger asChild>
+        <Button variant="outline" size="sm" className="h-8 gap-1.5 text-xs font-semibold">
+          <GitBranch className="h-3.5 w-3.5 text-muted-foreground" />
+          <span>{currentBranch}</span>
+          <ChevronDown className="h-3 w-3 opacity-60" />
+        </Button>
+      </DropdownMenuTrigger>
+      <DropdownMenuContent align="start" className="w-64 p-2 text-xs">
+        <div className="font-semibold px-2 py-1 text-muted-foreground text-[11px]">
+          Switch branches / tags
+        </div>
+        <div className="px-1 py-1">
+          <Input
+            placeholder="Find or create a branch..."
+            value={search}
+            onChange={(e) => setSearch(e.target.value)}
+            className="h-7 text-xs"
+          />
+        </div>
+        <div className="max-h-48 overflow-y-auto mt-1 divide-y divide-border/40">
+          {filtered.map((b: any) => (
+            <button
+              key={b.ref}
+              type="button"
+              onClick={() => {
+                onSelectBranch(b.name);
+                setOpen(false);
+              }}
+              className="w-full flex items-center justify-between px-2 py-1.5 text-left hover:bg-muted/70 rounded transition-colors text-xs"
+            >
+              <div className="flex items-center gap-2 truncate">
+                {b.name === currentBranch && <Check className="h-3 w-3 text-primary shrink-0" />}
+                <span
+                  className={
+                    b.name === currentBranch
+                      ? "font-semibold text-foreground"
+                      : "text-muted-foreground"
+                  }
+                >
+                  {b.name}
+                </span>
+                {b.isDefault && (
+                  <Badge
+                    variant="outline"
+                    className="text-[9px] py-0 px-1 border-muted-foreground/30"
+                  >
+                    default
+                  </Badge>
+                )}
+              </div>
+            </button>
+          ))}
+          {search.trim() && !exactMatch && isOwner && (
+            <button
+              type="button"
+              disabled={creating}
+              onClick={handleCreateBranch}
+              className="w-full text-left px-2 py-2 text-xs text-primary hover:bg-muted/50 rounded font-medium flex items-center gap-1.5"
+            >
+              <Plus className="h-3.5 w-3.5" />
+              <span>
+                Create branch <strong>{search.trim()}</strong> from {currentBranch}
+              </span>
+            </button>
+          )}
+          {filtered.length === 0 && !search.trim() && (
+            <div className="p-3 text-center text-muted-foreground text-xs">No branches found</div>
+          )}
+        </div>
+      </DropdownMenuContent>
+    </DropdownMenu>
+  );
+}
+
+/* -------------------------------------------------------------------------- */
+/*                                  PULLS TAB                                 */
+/* -------------------------------------------------------------------------- */
+
+function PullsTab({ repo, isOwner }: { repo: any; isOwner: boolean }) {
+  const { user } = useAuth();
+  const qc = useQueryClient();
+  const [filterState, setFilterState] = useState<"open" | "closed" | "all">("open");
+  const [newPrOpen, setNewPrOpen] = useState(false);
+  const [prTitle, setPrTitle] = useState("");
+  const [prBody, setPrBody] = useState("");
+  const [sourceBranch, setSourceBranch] = useState("");
+  const [targetBranch, setTargetBranch] = useState(repo.default_branch || "main");
+  const [creating, setCreating] = useState(false);
+  const [selectedPr, setSelectedPr] = useState<any | null>(null);
+  const [busyMerge, setBusyMerge] = useState(false);
+
+  // Fetch branches for PR creation
+  const { data: branches = [] } = useQuery({
+    queryKey: ["repo-branches", repo.id],
+    queryFn: async () => {
+      const res = await fetch(`/api/repo/branches?repoId=${repo.id}`);
+      if (!res.ok) return [];
+      const json = await res.json();
+      return json.branches || [];
+    },
+    staleTime: 1000 * 30,
+  });
+
+  // Fetch repo PRs
+  const { data: pullRequests = [], isLoading } = useQuery({
+    queryKey: ["repo-prs", repo.id, filterState],
+    queryFn: async () => {
+      const res = await fetch(`/api/repo/pulls?repoId=${repo.id}&state=${filterState}`);
+      if (!res.ok) return [];
+      const json = await res.json();
+      return json.pullRequests || [];
+    },
+    staleTime: 1000 * 15,
+  });
+
+  async function handleCreatePr() {
+    if (!prTitle.trim()) return void toast.error("Title is required");
+    if (!sourceBranch) return void toast.error("Source branch is required");
+
+    setCreating(true);
+    try {
+      const { data } = await supabase.auth.getSession();
+      const token = data?.session?.access_token || "";
+      const res = await fetch("/api/repo/pulls", {
+        method: "POST",
+        headers: {
+          Authorization: `Bearer ${token}`,
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          repoId: repo.id,
+          title: prTitle.trim(),
+          body: prBody.trim(),
+          sourceBranch,
+          targetBranch,
+        }),
+      });
+
+      const resJson = await res.json();
+      if (!res.ok) throw new Error(resJson.error || "Failed to create pull request");
+
+      toast.success(`Pull request #${resJson.pullRequest.number} created!`);
+      qc.invalidateQueries({ queryKey: ["repo-prs", repo.id] });
+      setNewPrOpen(false);
+      setPrTitle("");
+      setPrBody("");
+    } catch (e: any) {
+      toast.error(e.message || "Failed to create pull request");
+    } finally {
+      setCreating(false);
+    }
+  }
+
+  async function handleMergePr(prId: string) {
+    setBusyMerge(true);
+    try {
+      const { data } = await supabase.auth.getSession();
+      const token = data?.session?.access_token || "";
+      const res = await fetch("/api/repo/pull-merge", {
+        method: "POST",
+        headers: {
+          Authorization: `Bearer ${token}`,
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          prId,
+          method: "squash",
+        }),
+      });
+
+      const resJson = await res.json();
+      if (!res.ok) throw new Error(resJson.error || "Failed to merge pull request");
+
+      toast.success("Pull request successfully merged!");
+      if (resJson.closedIssues && resJson.closedIssues.length > 0) {
+        toast.info(`Auto-closed linked issue(s): #${resJson.closedIssues.join(", #")}`);
+      }
+
+      qc.invalidateQueries({ queryKey: ["repo-prs", repo.id] });
+      qc.invalidateQueries({ queryKey: ["issues", repo.id] });
+      qc.invalidateQueries({ queryKey: ["repo-commits", repo.id] });
+      setSelectedPr(null);
+    } catch (e: any) {
+      toast.error(e.message || "Merge failed");
+    } finally {
+      setBusyMerge(false);
+    }
+  }
+
+  return (
+    <div className="space-y-4">
+      {/* Controls Bar */}
+      <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
+        <div className="flex items-center gap-1.5 p-1 bg-muted/40 rounded-lg border border-border">
+          <Button
+            size="sm"
+            variant={filterState === "open" ? "secondary" : "ghost"}
+            className="text-xs h-7"
+            onClick={() => setFilterState("open")}
+          >
+            <GitPullRequest className="h-3.5 w-3.5 mr-1.5 text-emerald-500" />
+            Open
+          </Button>
+          <Button
+            size="sm"
+            variant={filterState === "closed" ? "secondary" : "ghost"}
+            className="text-xs h-7"
+            onClick={() => setFilterState("closed")}
+          >
+            <CircleCheck className="h-3.5 w-3.5 mr-1.5 text-purple-500" />
+            Closed / Merged
+          </Button>
+          <Button
+            size="sm"
+            variant={filterState === "all" ? "secondary" : "ghost"}
+            className="text-xs h-7"
+            onClick={() => setFilterState("all")}
+          >
+            All
+          </Button>
+        </div>
+
+        {user && (
+          <Button
+            size="sm"
+            onClick={() => {
+              if (branches.length > 1 && !sourceBranch) {
+                const other = branches.find((b: any) => !b.isDefault);
+                if (other) setSourceBranch(other.name);
+              }
+              setNewPrOpen(true);
+            }}
+            className="h-8 gap-1.5 text-xs font-semibold bg-success hover:bg-success/90 text-success-foreground"
+          >
+            <GitPullRequest className="h-3.5 w-3.5" />
+            <span>New pull request</span>
+          </Button>
+        )}
+      </div>
+
+      {/* PRs List */}
+      <div className="rounded-xl border border-border bg-card divide-y divide-border overflow-hidden text-xs">
+        {isLoading && (
+          <div className="p-8 text-center text-muted-foreground">Loading pull requests...</div>
+        )}
+
+        {!isLoading &&
+          pullRequests.map((pr: any) => (
+            <div
+              key={pr.id}
+              onClick={() => setSelectedPr(pr)}
+              className="flex items-start justify-between p-4 hover:bg-muted/40 transition-colors cursor-pointer"
+            >
+              <div className="flex items-start gap-3">
+                {pr.state === "open" ? (
+                  <GitPullRequest className="h-4 w-4 text-emerald-500 mt-0.5 shrink-0" />
+                ) : pr.state === "merged" ? (
+                  <GitMerge className="h-4 w-4 text-purple-500 mt-0.5 shrink-0" />
+                ) : (
+                  <CircleCheck className="h-4 w-4 text-muted-foreground mt-0.5 shrink-0" />
+                )}
+
+                <div>
+                  <div className="flex items-center gap-2">
+                    <span className="font-semibold text-foreground text-sm hover:underline">
+                      {pr.title}
+                    </span>
+                    <span className="text-muted-foreground font-mono">#{pr.number}</span>
+                  </div>
+                  <div className="text-[11px] text-muted-foreground mt-1 flex items-center gap-2">
+                    <span>
+                      opened {timeAgo(pr.created_at)} by {pr.profiles?.username || "author"}
+                    </span>
+                    <span>•</span>
+                    <span className="font-mono bg-muted px-1.5 py-0.5 rounded text-[10px]">
+                      {pr.source_branch} → {pr.target_branch}
+                    </span>
+                  </div>
+                </div>
+              </div>
+
+              <Badge
+                variant="outline"
+                className={`text-[10px] capitalize shrink-0 ${
+                  pr.state === "open"
+                    ? "border-emerald-600/30 text-emerald-500 bg-emerald-500/10"
+                    : pr.state === "merged"
+                      ? "border-purple-600/30 text-purple-400 bg-purple-500/10"
+                      : "border-border text-muted-foreground"
+                }`}
+              >
+                {pr.state}
+              </Badge>
+            </div>
+          ))}
+
+        {!isLoading && pullRequests.length === 0 && (
+          <div className="p-12 text-center text-muted-foreground">
+            <GitPullRequest className="mx-auto h-8 w-8 text-muted-foreground/40 mb-2" />
+            <p className="font-semibold text-foreground">
+              No {filterState !== "all" ? filterState : ""} pull requests
+            </p>
+            <p className="mt-1">
+              Pull requests let you tell others about changes you&apos;ve pushed to a branch in this
+              repository.
+            </p>
+          </div>
+        )}
+      </div>
+
+      {/* New PR Dialog */}
+      <Dialog open={newPrOpen} onOpenChange={setNewPrOpen}>
+        <DialogContent className="sm:max-w-lg">
+          <DialogHeader>
+            <DialogTitle className="text-sm font-bold flex items-center gap-2">
+              <GitPullRequest className="h-4 w-4 text-emerald-500" />
+              Open a new pull request
+            </DialogTitle>
+          </DialogHeader>
+
+          <div className="space-y-4 pt-2 text-xs">
+            <div className="flex items-center gap-2 p-2 rounded-lg bg-muted/50 border border-border">
+              <span className="text-muted-foreground">Compare:</span>
+              <select
+                value={sourceBranch}
+                onChange={(e) => setSourceBranch(e.target.value)}
+                className="bg-background border border-border rounded px-2 py-1 text-xs"
+              >
+                <option value="">Select source branch...</option>
+                {branches.map((b: any) => (
+                  <option key={b.name} value={b.name}>
+                    {b.name}
+                  </option>
+                ))}
+              </select>
+              <span className="text-muted-foreground">into</span>
+              <span className="font-mono font-semibold px-2 py-1 bg-background rounded border border-border">
+                {targetBranch}
+              </span>
+            </div>
+
+            <div className="space-y-1">
+              <label className="text-[11px] font-medium text-muted-foreground">Title</label>
+              <Input
+                placeholder="e.g. Feature: Add user avatar support (fixes #1)"
+                value={prTitle}
+                onChange={(e) => setPrTitle(e.target.value)}
+                className="text-xs h-8"
+              />
+            </div>
+
+            <div className="space-y-1">
+              <label className="text-[11px] font-medium text-muted-foreground">
+                Description (Markdown)
+              </label>
+              <Textarea
+                placeholder="Describe your changes and include issue references (e.g. fixes #12)..."
+                value={prBody}
+                onChange={(e) => setPrBody(e.target.value)}
+                className="min-h-[100px] text-xs font-mono"
+              />
+            </div>
+          </div>
+
+          <DialogFooter className="pt-2">
+            <Button variant="outline" size="sm" onClick={() => setNewPrOpen(false)}>
+              Cancel
+            </Button>
+            <Button
+              size="sm"
+              disabled={creating || !prTitle.trim() || !sourceBranch}
+              onClick={handleCreatePr}
+              className="bg-emerald-600 hover:bg-emerald-500"
+            >
+              {creating ? "Creating..." : "Create pull request"}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* PR Detail Modal */}
+      {selectedPr && (
+        <Dialog open={!!selectedPr} onOpenChange={(open) => !open && setSelectedPr(null)}>
+          <DialogContent className="sm:max-w-2xl">
+            <DialogHeader>
+              <div className="flex items-center gap-2">
+                <Badge
+                  variant="outline"
+                  className={`text-[10px] capitalize ${
+                    selectedPr.state === "open"
+                      ? "border-emerald-600/30 text-emerald-500 bg-emerald-500/10"
+                      : selectedPr.state === "merged"
+                        ? "border-purple-600/30 text-purple-400 bg-purple-500/10"
+                        : "border-border text-muted-foreground"
+                  }`}
+                >
+                  {selectedPr.state}
+                </Badge>
+                <DialogTitle className="text-base font-bold">
+                  {selectedPr.title}{" "}
+                  <span className="text-muted-foreground font-normal">#{selectedPr.number}</span>
+                </DialogTitle>
+              </div>
+              <div className="text-[11px] text-muted-foreground pt-1 flex items-center gap-2">
+                <span>by {selectedPr.profiles?.username || "author"}</span>
+                <span>•</span>
+                <span className="font-mono bg-muted px-1.5 py-0.5 rounded text-[10px]">
+                  {selectedPr.source_branch} into {selectedPr.target_branch}
+                </span>
+                <span>•</span>
+                <span>{timeAgo(selectedPr.created_at)}</span>
+              </div>
+            </DialogHeader>
+
+            <div className="space-y-4 py-3 text-xs">
+              <div className="rounded-lg border border-border bg-muted/20 p-4">
+                <div className="prose prose-sm dark:prose-invert max-w-none text-xs">
+                  {selectedPr.body ? (
+                    <MarkdownRenderer content={selectedPr.body} />
+                  ) : (
+                    <span className="text-muted-foreground italic">No description provided.</span>
+                  )}
+                </div>
+              </div>
+
+              {/* Merge Actions for Maintainers */}
+              {selectedPr.state === "open" && isOwner && (
+                <div className="rounded-lg border border-emerald-500/30 bg-emerald-500/5 p-4 flex flex-col sm:flex-row items-center justify-between gap-3">
+                  <div>
+                    <div className="font-semibold text-emerald-600 dark:text-emerald-400 text-xs">
+                      This branch has no conflicts and can be merged
+                    </div>
+                    <div className="text-[11px] text-muted-foreground mt-0.5">
+                      Merging will squash commits and close linked issues automatically.
+                    </div>
+                  </div>
+
+                  <Button
+                    size="sm"
+                    disabled={busyMerge}
+                    onClick={() => handleMergePr(selectedPr.id)}
+                    className="bg-emerald-600 hover:bg-emerald-500 text-xs font-semibold shrink-0"
+                  >
+                    <GitMerge className="h-3.5 w-3.5 mr-1.5" />
+                    {busyMerge ? "Merging..." : "Squash and merge"}
+                  </Button>
+                </div>
+              )}
+
+              {selectedPr.state === "merged" && (
+                <div className="rounded-lg border border-purple-500/30 bg-purple-500/5 p-3 flex items-center gap-2.5 text-xs text-purple-400">
+                  <GitMerge className="h-4 w-4" />
+                  <span>
+                    Successfully merged into <strong>{selectedPr.target_branch}</strong> on{" "}
+                    {new Date(selectedPr.merged_at || selectedPr.updated_at).toLocaleString()}.
+                  </span>
+                </div>
+              )}
+            </div>
+
+            <DialogFooter>
+              <Button variant="outline" size="sm" onClick={() => setSelectedPr(null)}>
+                Close
+              </Button>
+            </DialogFooter>
+          </DialogContent>
+        </Dialog>
+      )}
     </div>
   );
 }
@@ -1443,6 +2087,12 @@ function SettingsTab({ repo, owner }: { repo: any; owner: string }) {
           </Button>
         </div>
       </div>
+
+      {/* GITBOWL PAGES SECTION */}
+      <PagesSettingsCard repoId={repo.id} owner={owner} repoName={repo.name} />
+
+      {/* WEBHOOKS SECTION */}
+      <WebhooksSettingsCard repoId={repo.id} />
 
       {/* PERSONAL ACCESS TOKENS SECTION */}
       <TokenManager />
@@ -1669,6 +2319,352 @@ function TokenManager() {
               </Button>
               <Button type="submit" size="sm" disabled={busy || !tokenName.trim()}>
                 {busy ? "Generating..." : "Generate token"}
+              </Button>
+            </DialogFooter>
+          </form>
+        </DialogContent>
+      </Dialog>
+    </div>
+  );
+}
+
+/* -------------------------------------------------------------------------- */
+/*                            GITBOWL PAGES CARD                              */
+/* -------------------------------------------------------------------------- */
+
+function PagesSettingsCard({
+  repoId,
+  owner,
+  repoName,
+}: {
+  repoId: string;
+  owner: string;
+  repoName: string;
+}) {
+  const { session } = useAuth();
+  const qc = useQueryClient();
+  const [enabled, setEnabled] = useState(false);
+  const [branch, setBranch] = useState("main");
+  const [path, setPath] = useState("/");
+  const [busy, setBusy] = useState(false);
+
+  const { data: config } = useQuery({
+    queryKey: ["pages-config", repoId],
+    queryFn: async () => {
+      const res = await fetch(`/api/repo/pages-config?repoId=${repoId}`);
+      if (!res.ok) return null;
+      const json = await res.json();
+      return json.config;
+    },
+  });
+
+  useEffect(() => {
+    if (config) {
+      setEnabled(!!config.is_enabled);
+      setBranch(config.branch || "main");
+      setPath(config.path || "/");
+    }
+  }, [config]);
+
+  async function handleSave() {
+    if (!session?.access_token) return;
+    setBusy(true);
+    try {
+      const res = await fetch("/api/repo/pages-config", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${session.access_token}`,
+        },
+        body: JSON.stringify({
+          repoId,
+          isEnabled: enabled,
+          branch,
+          path,
+        }),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || "Failed to update Pages");
+      toast.success(enabled ? "GitBowl Pages published" : "GitBowl Pages disabled");
+      qc.invalidateQueries({ queryKey: ["pages-config", repoId] });
+    } catch (e: any) {
+      toast.error(e.message || "Failed to save Pages config");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  const liveUrl = `/pages/${owner}/${repoName}/`;
+
+  return (
+    <div className="rounded-xl border border-border bg-card p-6 space-y-4">
+      <div className="flex items-center justify-between">
+        <div>
+          <h3 className="text-base font-semibold text-foreground flex items-center gap-2">
+            <Globe className="h-4 w-4 text-emerald-500" />
+            GitBowl Pages
+          </h3>
+          <p className="text-xs text-muted-foreground mt-0.5">
+            Host static HTML, CSS, and JavaScript sites directly from your repository.
+          </p>
+        </div>
+        <Switch checked={enabled} onCheckedChange={setEnabled} />
+      </div>
+
+      {enabled && (
+        <div className="space-y-4 pt-2 border-t border-border">
+          <div className="rounded-lg border border-emerald-500/30 bg-emerald-500/10 p-3 flex items-center justify-between text-xs">
+            <span className="text-emerald-500 font-medium">Your site is live at:</span>
+            <a
+              href={liveUrl}
+              target="_blank"
+              rel="noreferrer"
+              className="font-mono text-foreground font-semibold hover:underline flex items-center gap-1.5"
+            >
+              <span>{liveUrl}</span>
+              <ExternalLink className="h-3 w-3" />
+            </a>
+          </div>
+
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 text-xs">
+            <div className="space-y-1">
+              <Label className="text-xs">Publish Branch</Label>
+              <select
+                value={branch}
+                onChange={(e) => setBranch(e.target.value)}
+                className="w-full h-8 rounded-md border border-input bg-background px-3 text-xs"
+              >
+                <option value="main">main</option>
+                <option value="gh-pages">gh-pages</option>
+              </select>
+            </div>
+            <div className="space-y-1">
+              <Label className="text-xs">Source Folder</Label>
+              <select
+                value={path}
+                onChange={(e) => setPath(e.target.value)}
+                className="w-full h-8 rounded-md border border-input bg-background px-3 text-xs"
+              >
+                <option value="/">/ (root)</option>
+                <option value="/docs">/docs</option>
+              </select>
+            </div>
+          </div>
+        </div>
+      )}
+
+      <div className="pt-2">
+        <Button size="sm" disabled={busy} onClick={handleSave} className="text-xs">
+          {busy ? "Saving..." : "Save Pages settings"}
+        </Button>
+      </div>
+    </div>
+  );
+}
+
+/* -------------------------------------------------------------------------- */
+/*                            WEBHOOKS SETTINGS CARD                          */
+/* -------------------------------------------------------------------------- */
+
+function WebhooksSettingsCard({ repoId }: { repoId: string }) {
+  const { session } = useAuth();
+  const qc = useQueryClient();
+  const [addOpen, setAddOpen] = useState(false);
+  const [url, setUrl] = useState("");
+  const [secret, setSecret] = useState("");
+  const [busy, setBusy] = useState(false);
+
+  const { data: webhooks = [] } = useQuery({
+    queryKey: ["repo-webhooks", repoId],
+    queryFn: async () => {
+      if (!session?.access_token) return [];
+      const res = await fetch(`/api/repo/webhooks?repoId=${repoId}`, {
+        headers: { Authorization: `Bearer ${session.access_token}` },
+      });
+      if (!res.ok) return [];
+      const json = await res.json();
+      return json.webhooks || [];
+    },
+    enabled: !!session?.access_token,
+  });
+
+  async function handleAddWebhook(e: React.FormEvent) {
+    e.preventDefault();
+    if (!url.trim()) return void toast.error("Payload URL is required");
+    if (!session?.access_token) return;
+
+    setBusy(true);
+    try {
+      const res = await fetch("/api/repo/webhooks", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${session.access_token}`,
+        },
+        body: JSON.stringify({
+          repoId,
+          url: url.trim(),
+          secret: secret.trim(),
+          events: ["push", "pull_request", "issues", "release"],
+        }),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || "Failed to add webhook");
+      toast.success("Webhook added successfully");
+      qc.invalidateQueries({ queryKey: ["repo-webhooks", repoId] });
+      setAddOpen(false);
+      setUrl("");
+      setSecret("");
+    } catch (err: any) {
+      toast.error(err.message || "Failed to add webhook");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function handleTestPing(webhookId: string) {
+    if (!session?.access_token) return;
+    try {
+      const res = await fetch("/api/repo/webhook-deliveries", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${session.access_token}`,
+        },
+        body: JSON.stringify({ webhookId, action: "ping" }),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || "Ping failed");
+      toast.success(
+        data.delivery?.success
+          ? "Ping delivered successfully (HTTP 200)"
+          : `Ping sent (status: ${data.delivery?.statusCode || "timeout"})`,
+      );
+    } catch (err: any) {
+      toast.error(err.message || "Failed to ping webhook");
+    }
+  }
+
+  async function handleDeleteWebhook(webhookId: string) {
+    if (!confirm("Are you sure you want to delete this webhook?")) return;
+    if (!session?.access_token) return;
+
+    try {
+      const res = await fetch("/api/repo/webhooks", {
+        method: "DELETE",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${session.access_token}`,
+        },
+        body: JSON.stringify({ webhookId }),
+      });
+      if (res.ok) {
+        toast.success("Webhook deleted");
+        qc.invalidateQueries({ queryKey: ["repo-webhooks", repoId] });
+      }
+    } catch (err: any) {
+      toast.error(err.message || "Failed to delete webhook");
+    }
+  }
+
+  return (
+    <div className="rounded-xl border border-border bg-card p-6 space-y-4">
+      <div className="flex items-center justify-between">
+        <div>
+          <h3 className="text-base font-semibold text-foreground flex items-center gap-2">
+            <Radio className="h-4 w-4 text-emerald-500" />
+            Webhooks
+          </h3>
+          <p className="text-xs text-muted-foreground mt-0.5">
+            Webhooks allow external services to be notified when certain events happen on GitBowl.
+          </p>
+        </div>
+        <Button size="sm" onClick={() => setAddOpen(true)} className="h-8 text-xs gap-1.5">
+          <Plus className="h-3.5 w-3.5" />
+          <span>Add webhook</span>
+        </Button>
+      </div>
+
+      <div className="rounded-lg border border-border divide-y divide-border overflow-hidden text-xs">
+        {webhooks.map((hook: any) => (
+          <div key={hook.id} className="p-4 flex items-center justify-between gap-4">
+            <div className="space-y-1">
+              <span className="font-mono font-medium text-foreground">{hook.url}</span>
+              <div className="flex items-center gap-2">
+                <Badge
+                  variant="outline"
+                  className="text-[10px] bg-emerald-500/10 text-emerald-500 border-emerald-500/30"
+                >
+                  Active
+                </Badge>
+                <span className="text-[11px] text-muted-foreground">
+                  Events: {hook.events?.join(", ") || "push"}
+                </span>
+              </div>
+            </div>
+            <div className="flex items-center gap-2">
+              <Button
+                size="sm"
+                variant="outline"
+                className="h-7 text-xs"
+                onClick={() => handleTestPing(hook.id)}
+              >
+                Test Ping
+              </Button>
+              <Button
+                size="sm"
+                variant="ghost"
+                className="h-7 text-xs text-destructive hover:text-destructive"
+                onClick={() => handleDeleteWebhook(hook.id)}
+              >
+                Delete
+              </Button>
+            </div>
+          </div>
+        ))}
+        {webhooks.length === 0 && (
+          <p className="p-4 text-xs text-muted-foreground text-center">
+            No webhooks configured yet.
+          </p>
+        )}
+      </div>
+
+      {/* Add Webhook Dialog */}
+      <Dialog open={addOpen} onOpenChange={setAddOpen}>
+        <DialogContent className="max-w-md">
+          <DialogHeader>
+            <DialogTitle className="text-base font-semibold">Add Webhook</DialogTitle>
+          </DialogHeader>
+          <form onSubmit={handleAddWebhook} className="space-y-3 py-2 text-xs">
+            <div className="space-y-1">
+              <Label className="text-xs">Payload URL</Label>
+              <Input
+                placeholder="https://example.com/webhooks"
+                value={url}
+                onChange={(e) => setUrl(e.target.value)}
+                className="h-8 text-xs"
+                required
+              />
+            </div>
+            <div className="space-y-1">
+              <Label className="text-xs">Secret (HMAC-SHA256)</Label>
+              <Input
+                type="password"
+                placeholder="Optional shared secret key"
+                value={secret}
+                onChange={(e) => setSecret(e.target.value)}
+                className="h-8 text-xs"
+              />
+              <p className="text-[10px] text-muted-foreground">
+                Payloads will be signed with <code>X-GitBowl-Signature-256</code>.
+              </p>
+            </div>
+            <DialogFooter className="pt-2">
+              <Button type="button" variant="outline" size="sm" onClick={() => setAddOpen(false)}>
+                Cancel
+              </Button>
+              <Button type="submit" size="sm" disabled={busy || !url.trim()}>
+                {busy ? "Adding..." : "Add webhook"}
               </Button>
             </DialogFooter>
           </form>

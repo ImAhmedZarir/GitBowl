@@ -191,19 +191,150 @@ export async function authenticate(request: Request, admin: Admin): Promise<stri
 }
 
 export async function findRepo(admin: Admin, owner: string, name: string) {
+  // 1. Try finding by user profile
   const { data: p } = await admin
     .from("profiles")
     .select("id, username")
-    .eq("username", owner)
+    .ilike("username", owner)
     .maybeSingle();
-  if (!p) return null;
-  const { data: repo } = await admin
-    .from("repositories")
-    .select("*")
-    .eq("owner_id", p.id)
-    .eq("name", name)
+
+  if (p) {
+    const { data: repo } = await admin
+      .from("repositories")
+      .select("*")
+      .eq("owner_id", p.id)
+      .eq("name", name)
+      .maybeSingle();
+    if (repo) return { repo, owner: p };
+  }
+
+  // 2. Try finding by organization slug
+  const { data: org } = await admin
+    .from("orgs" as any)
+    .select("id, slug, name")
+    .ilike("slug", owner)
     .maybeSingle();
-  return repo ? { repo, owner: p } : null;
+
+  if (org) {
+    const { data: repo } = await admin
+      .from("repositories" as any)
+      .select("*")
+      .eq("org_id", (org as any).id)
+      .eq("name", name)
+      .maybeSingle();
+    if (repo) {
+      return {
+        repo,
+        owner: { id: (org as any).id, username: (org as any).slug },
+        org,
+      };
+    }
+  }
+
+  return null;
+}
+
+export async function hasRepoWriteAccess(
+  admin: Admin,
+  repo: any,
+  userId: string,
+): Promise<boolean> {
+  if (repo.owner_id === userId) return true;
+
+  // Direct collaborator check
+  const { data: collab } = await admin
+    .from("repo_collaborators" as any)
+    .select("permission")
+    .eq("repo_id", repo.id)
+    .eq("user_id", userId)
+    .maybeSingle();
+
+  if (collab && ["write", "maintain", "admin"].includes((collab as any).permission)) return true;
+
+  // Organization permission check
+  if (repo.org_id) {
+    const { data: orgMember } = await admin
+      .from("org_members" as any)
+      .select("role")
+      .eq("org_id", repo.org_id)
+      .eq("user_id", userId)
+      .maybeSingle();
+
+    if (orgMember && ["owner", "admin"].includes((orgMember as any).role)) return true;
+
+    // Team permission check
+    const { data: userTeams } = await admin
+      .from("team_members" as any)
+      .select("team_id")
+      .eq("user_id", userId);
+
+    if (userTeams && userTeams.length > 0) {
+      const teamIds = (userTeams as any[]).map((t: any) => t.team_id);
+      const { data: teamPerms } = await admin
+        .from("team_repo_permissions" as any)
+        .select("permission")
+        .eq("repo_id", repo.id)
+        .in("team_id", teamIds);
+
+      if (
+        (teamPerms as any[])?.some((p: any) =>
+          ["write", "maintain", "admin"].includes(p.permission),
+        )
+      ) {
+        return true;
+      }
+    }
+  }
+
+  return false;
+}
+
+export async function hasRepoReadAccess(
+  admin: Admin,
+  repo: any,
+  userId: string | null,
+): Promise<boolean> {
+  if (!repo.is_private) return true;
+  if (!userId) return false;
+  if (repo.owner_id === userId) return true;
+
+  const { data: collab } = await admin
+    .from("repo_collaborators" as any)
+    .select("permission")
+    .eq("repo_id", repo.id)
+    .eq("user_id", userId)
+    .maybeSingle();
+
+  if (collab) return true;
+
+  if (repo.org_id) {
+    const { data: orgMember } = await admin
+      .from("org_members" as any)
+      .select("role")
+      .eq("org_id", repo.org_id)
+      .eq("user_id", userId)
+      .maybeSingle();
+
+    if (orgMember) return true;
+
+    const { data: userTeams } = await admin
+      .from("team_members" as any)
+      .select("team_id")
+      .eq("user_id", userId);
+
+    if (userTeams && userTeams.length > 0) {
+      const teamIds = (userTeams as any[]).map((t: any) => t.team_id);
+      const { data: teamPerms } = await admin
+        .from("team_repo_permissions" as any)
+        .select("permission")
+        .eq("repo_id", repo.id)
+        .in("team_id", teamIds);
+
+      if (teamPerms && teamPerms.length > 0) return true;
+    }
+  }
+
+  return false;
 }
 
 /* ---------- web files -> commit ---------- */
@@ -295,16 +426,30 @@ export function advertise(
   service: "git-upload-pack" | "git-receive-pack",
   head: string | null,
   branch: string,
+  extraRefs: Array<{ name: string; sha: string }> = [],
 ) {
   const caps =
     service === "git-upload-pack"
       ? `side-band-64k side-band symref=HEAD:refs/heads/${branch} agent=gitbowl/1.0`
       : `report-status delete-refs ofs-delta side-band-64k agent=gitbowl/1.0`;
   const parts = [pkt(`# service=${service}\n`), FLUSH];
-  if (!head) parts.push(pkt(`${ZERO} capabilities^{}\0${caps}\n`));
-  else if (service === "git-upload-pack") {
+  if (!head) {
+    parts.push(pkt(`${ZERO} capabilities^{}\0${caps}\n`));
+  } else if (service === "git-upload-pack") {
     parts.push(pkt(`${head} HEAD\0${caps}\n`), pkt(`${head} refs/heads/${branch}\n`));
-  } else parts.push(pkt(`${head} refs/heads/${branch}\0${caps}\n`));
+    for (const r of extraRefs) {
+      if (r.name !== `refs/heads/${branch}` && r.name !== "HEAD") {
+        parts.push(pkt(`${r.sha} ${r.name}\n`));
+      }
+    }
+  } else {
+    parts.push(pkt(`${head} refs/heads/${branch}\0${caps}\n`));
+    for (const r of extraRefs) {
+      if (r.name !== `refs/heads/${branch}`) {
+        parts.push(pkt(`${r.sha} ${r.name}\n`));
+      }
+    }
+  }
   parts.push(FLUSH);
   return Buffer.concat(parts);
 }
@@ -490,12 +635,25 @@ export async function receivePack(admin: Admin, repo: Repo, userId: string, requ
     report.push(pkt("unpack ok\n"));
 
     for (const c of cmds) {
-      if (c.ref !== branchRef) {
-        report.push(pkt(`ng ${c.ref} only the ${branchRef.slice(11)} branch is supported\n`));
-        continue;
-      }
       if (c.newSha === ZERO) {
-        report.push(pkt(`ng ${c.ref} deleting the default branch is not allowed\n`));
+        if (c.ref === branchRef) {
+          report.push(pkt(`ng ${c.ref} deleting the default branch is not allowed\n`));
+          continue;
+        }
+        await admin
+          .from("refs" as any)
+          .delete()
+          .eq("repo_id", repo.id)
+          .eq("name", c.ref);
+        if (c.ref.startsWith("refs/heads/")) {
+          const branchName = c.ref.slice(11);
+          await admin
+            .from("branches" as any)
+            .delete()
+            .eq("repo_id", repo.id)
+            .eq("name", branchName);
+        }
+        report.push(pkt(`ok ${c.ref}\n`));
         continue;
       }
 
@@ -532,68 +690,128 @@ export async function receivePack(admin: Admin, repo: Repo, userId: string, requ
       }
 
       await upsertObjects(admin, repo.id, objs);
-      const old = await loadFiles(admin, repo.id);
-      const oldMap = new Map(old.map((f) => [f.path, f.content]));
-      const changes = [
-        ...files
-          .filter((f) => oldMap.get(f.path) !== f.content)
-          .map((f) => ({ path: f.path, type: oldMap.has(f.path) ? "modified" : "added" })),
-        ...old
+
+      // Record ref update in refs and branches tables
+      await admin.from("refs" as any).upsert(
+        {
+          repo_id: repo.id,
+          name: c.ref,
+          sha: c.newSha,
+          updated_at: new Date().toISOString(),
+        },
+        { onConflict: "repo_id,name" },
+      );
+
+      if (c.ref.startsWith("refs/heads/")) {
+        const branchName = c.ref.slice(11);
+        await admin.from("branches" as any).upsert(
+          {
+            repo_id: repo.id,
+            name: branchName,
+            commit_sha: c.newSha,
+            updated_at: new Date().toISOString(),
+          },
+          { onConflict: "repo_id,name" },
+        );
+      }
+
+      if (c.ref === branchRef) {
+        const old = await loadFiles(admin, repo.id);
+        const oldMap = new Map(old.map((f) => [f.path, f.content]));
+        const changes = [
+          ...files
+            .filter((f) => oldMap.get(f.path) !== f.content)
+            .map((f) => ({ path: f.path, type: oldMap.has(f.path) ? "modified" : "added" })),
+          ...old
+            .filter((f) => !files.some((n) => n.path === f.path))
+            .map((f) => ({ path: f.path, type: "deleted" })),
+        ];
+        // Incremental updates: only upsert changed/added files, and delete removed files
+        const toUpsert = files.filter((f) => oldMap.get(f.path) !== f.content);
+        const toDelete = old
           .filter((f) => !files.some((n) => n.path === f.path))
-          .map((f) => ({ path: f.path, type: "deleted" })),
-      ];
-      // Incremental updates: only upsert changed/added files, and delete removed files
-      const toUpsert = files.filter((f) => oldMap.get(f.path) !== f.content);
-      const toDelete = old.filter((f) => !files.some((n) => n.path === f.path)).map((f) => f.path);
+          .map((f) => f.path);
 
-      if (toUpsert.length) {
-        for (let i = 0; i < toUpsert.length; i += 100) {
-          const { error } = await admin.from("repo_files").upsert(
-            toUpsert.slice(i, i + 100).map((f) => ({ ...f, repo_id: repo.id })),
-            { onConflict: "repo_id,path" },
-          );
-          if (error) throw error;
+        if (toUpsert.length) {
+          for (let i = 0; i < toUpsert.length; i += 100) {
+            const { error } = await admin.from("repo_files").upsert(
+              toUpsert.slice(i, i + 100).map((f) => ({ ...f, repo_id: repo.id })),
+              { onConflict: "repo_id,path" },
+            );
+            if (error) throw error;
+          }
+
+          // Mirror committed files to central storage tier
+          try {
+            const { data: ownerProfile } = await admin
+              .from("profiles")
+              .select("username")
+              .eq("id", repo.owner_id)
+              .single();
+            const ownerUser = ownerProfile?.username || "developer";
+            syncFilesToGoogleDrive(ownerUser, repo.name, toUpsert).catch((err) =>
+              console.warn("[GDrive] Git push sync error:", err),
+            );
+          } catch (e) {
+            console.warn("[GDrive] Lookup profile for Drive sync error:", e);
+          }
         }
 
-        // Mirror committed files to central Google Drive storage
-        try {
-          const { data: ownerProfile } = await admin
-            .from("profiles")
-            .select("username")
-            .eq("id", repo.owner_id)
-            .single();
-          const ownerUser = ownerProfile?.username || "developer";
-          syncFilesToGoogleDrive(ownerUser, repo.name, toUpsert).catch((err) =>
-            console.warn("[GDrive] Git push sync error:", err),
-          );
-        } catch (e) {
-          console.warn("[GDrive] Lookup profile for Drive sync error:", e);
+        if (toDelete.length) {
+          for (let i = 0; i < toDelete.length; i += 100) {
+            const { error } = await admin
+              .from("repo_files")
+              .delete()
+              .eq("repo_id", repo.id)
+              .in("path", toDelete.slice(i, i + 100));
+            if (error) throw error;
+          }
         }
+
+        const now = Date.now();
+        const rows = msgs.reverse().map((m, i, arr) => ({
+          repo_id: repo.id,
+          author_id: userId,
+          message: m,
+          changes: i === arr.length - 1 ? changes : [],
+          created_at: new Date(now - (arr.length - 1 - i) * 1000).toISOString(),
+        }));
+        if (rows.length) await admin.from("commits").insert(rows);
+        await admin
+          .from("repositories")
+          .update({ head_sha: c.newSha, updated_at: new Date().toISOString() })
+          .eq("id", repo.id);
+      } else {
+        const now = Date.now();
+        const rows = msgs.reverse().map((m, i) => ({
+          repo_id: repo.id,
+          author_id: userId,
+          message: m,
+          changes: [],
+          created_at: new Date(now - (msgs.length - 1 - i) * 1000).toISOString(),
+        }));
+        if (rows.length) await admin.from("commits").insert(rows);
       }
 
-      if (toDelete.length) {
-        for (let i = 0; i < toDelete.length; i += 100) {
-          const { error } = await admin
-            .from("repo_files")
-            .delete()
-            .eq("repo_id", repo.id)
-            .in("path", toDelete.slice(i, i + 100));
-          if (error) throw error;
-        }
+      // Dispatch Webhook on push
+      try {
+        const { dispatchRepoWebhooks } = await import("@/lib/webhooks.server");
+        void dispatchRepoWebhooks({
+          repoId: repo.id,
+          event: "push",
+          payload: {
+            ref: c.ref,
+            before: c.oldSha,
+            after: c.newSha,
+            repository: { id: repo.id, name: repo.name },
+            pusher: { id: userId },
+            commits: msgs.map((m) => ({ id: c.newSha, message: m })),
+          },
+        });
+      } catch (webhookErr) {
+        console.warn("[Git] Webhook dispatch error:", webhookErr);
       }
-      const now = Date.now();
-      const rows = msgs.reverse().map((m, i, arr) => ({
-        repo_id: repo.id,
-        author_id: userId,
-        message: m,
-        changes: i === arr.length - 1 ? changes : [],
-        created_at: new Date(now - (arr.length - 1 - i) * 1000).toISOString(),
-      }));
-      if (rows.length) await admin.from("commits").insert(rows);
-      await admin
-        .from("repositories")
-        .update({ head_sha: c.newSha, updated_at: new Date().toISOString() })
-        .eq("id", repo.id);
+
       report.push(pkt(`ok ${c.ref}\n`));
     }
   } catch (e: any) {

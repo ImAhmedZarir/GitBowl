@@ -36,14 +36,12 @@ export function Footer() {
           >
             Status
           </a>
-          <a
-            href="https://github.com"
-            target="_blank"
-            rel="noreferrer"
+          <Link
+            to="/docs"
             className="hover:text-foreground transition-colors inline-flex items-center gap-1 whitespace-nowrap"
           >
-            <Terminal className="h-3 w-3" /> CLI Docs
-          </a>
+            <Terminal className="h-3 w-3" /> Docs
+          </Link>
           <Link to="/tos" className="hover:text-foreground transition-colors whitespace-nowrap">
             Terms
           </Link>

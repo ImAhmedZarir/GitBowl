@@ -43,7 +43,8 @@ function createSupabaseClient() {
 
   const envKey =
     (typeof import.meta !== "undefined" && import.meta.env
-      ? import.meta.env["VITE_SUPABASE_PUBLISHABLE_KEY"] || import.meta.env["SUPABASE_PUBLISHABLE_KEY"]
+      ? import.meta.env["VITE_SUPABASE_PUBLISHABLE_KEY"] ||
+        import.meta.env["SUPABASE_PUBLISHABLE_KEY"]
       : undefined) ||
     (typeof process !== "undefined" && process.env
       ? process.env["VITE_SUPABASE_PUBLISHABLE_KEY"] || process.env["SUPABASE_PUBLISHABLE_KEY"]
