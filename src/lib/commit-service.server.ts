@@ -140,7 +140,7 @@ export async function commitChanges(params: CommitChangesParams) {
   // 2. Authorization Check (Fetch repo and verify owner/collaborator)
   const { data: repo, error: repoErr } = await supabaseAdmin
     .from("repositories")
-    .select("id, name, owner_id, is_private, head_sha, default_branch")
+    .select("id, name, owner_id, org_id, is_private, head_sha, default_branch")
     .eq("id", repoId)
     .single();
 
@@ -148,7 +148,74 @@ export async function commitChanges(params: CommitChangesParams) {
     throw new CommitError("Repository not found", 404);
   }
 
-  if (repo.owner_id !== user.id) {
+  let hasWriteAccess = repo.owner_id === user.id;
+
+  // Check direct repository collaborators
+  if (!hasWriteAccess) {
+    const { data: collab } = await supabaseAdmin
+      .from("repo_collaborators" as any)
+      .select("permission")
+      .eq("repo_id", repo.id)
+      .eq("user_id", user.id)
+      .maybeSingle();
+
+    if (collab && ["write", "maintain", "admin"].includes((collab as any).permission)) {
+      hasWriteAccess = true;
+    }
+  }
+
+  // Check organization membership and team repo permissions if repository belongs to an organization
+  if (!hasWriteAccess && repo.org_id) {
+    const { data: member } = await supabaseAdmin
+      .from("org_members" as any)
+      .select("role")
+      .eq("org_id", repo.org_id)
+      .eq("user_id", user.id)
+      .maybeSingle();
+
+    if (member && ["owner", "admin", "member"].includes(member.role)) {
+      hasWriteAccess = true;
+    }
+
+    if (!hasWriteAccess) {
+      const { data: userTeams } = await supabaseAdmin
+        .from("team_members" as any)
+        .select("team_id")
+        .eq("user_id", user.id);
+
+      if (userTeams && userTeams.length > 0) {
+        const teamIds = (userTeams as any[]).map((t: any) => t.team_id);
+        const { data: teamPerms } = await supabaseAdmin
+          .from("team_repo_permissions" as any)
+          .select("permission")
+          .eq("repo_id", repo.id)
+          .in("team_id", teamIds);
+
+        if (
+          (teamPerms as any[])?.some((p: any) =>
+            ["write", "maintain", "admin"].includes(p.permission),
+          )
+        ) {
+          hasWriteAccess = true;
+        }
+      }
+    }
+  }
+
+  // Check system administrator privileges
+  if (!hasWriteAccess) {
+    const { data: profile } = await supabaseAdmin
+      .from("profiles")
+      .select("role")
+      .eq("id", user.id)
+      .maybeSingle();
+
+    if (profile?.role === "admin") {
+      hasWriteAccess = true;
+    }
+  }
+
+  if (!hasWriteAccess) {
     throw new CommitError("You do not have write permissions for this repository", 403);
   }
 

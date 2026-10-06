@@ -23,6 +23,7 @@ import {
   githubProvider,
   signInWithPopup,
   GithubAuthProvider,
+  linkWithCredential,
 } from "@/lib/firebase";
 import { useAuth } from "@/lib/auth";
 import { Button } from "@/components/ui/button";
@@ -399,6 +400,75 @@ function AuthPage() {
         setBusy(false);
         return;
       }
+
+      if (err.code === "auth/account-exists-with-different-credential") {
+        const conflictEmail = err.customData?.email || err.email;
+        const pendingCred = GithubAuthProvider.credentialFromError(err);
+        const ghAccessToken = pendingCred?.accessToken || null;
+
+        if (ghAccessToken) {
+          localStorage.setItem("gitbowl_github_token", ghAccessToken);
+        }
+
+        toast.info(
+          `An account already exists for ${conflictEmail || "this email"}. Sign in with your existing provider to link GitHub.`,
+        );
+
+        try {
+          // Attempt prompt to sign in with Google to link credentials
+          const googleRes = await signInWithPopup(firebaseAuth, googleProvider);
+          if (pendingCred) {
+            try {
+              await linkWithCredential(googleRes.user, pendingCred);
+              toast.success("GitHub account successfully linked!");
+            } catch (linkErr: any) {
+              console.warn("Credential link notice:", linkErr);
+            }
+          }
+
+          const fbUser = googleRes.user;
+          const syncRes = await fetch("/api/auth/github-sync", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              email: fbUser.email,
+              displayName: fbUser.displayName || fbUser.email?.split("@")[0] || "developer",
+              photoURL: fbUser.photoURL,
+              githubToken: ghAccessToken,
+            }),
+          });
+
+          const syncData = await syncRes.json();
+          if (!syncRes.ok || syncData.error) {
+            throw new Error(syncData.error || "Failed to establish server session");
+          }
+
+          if (syncData.hashed_token) {
+            const { error: otpError } = await supabase.auth.verifyOtp({
+              token_hash: syncData.hashed_token,
+              type: "magiclink",
+            });
+            if (otpError) throw otpError;
+          }
+
+          toast.success(`Welcome to GitBowl, ${fbUser.displayName || "developer"}!`);
+          navigate({ to: search.redirect || "/new?tab=import" });
+          return;
+        } catch (linkPopupErr: any) {
+          if (
+            linkPopupErr.code === "auth/popup-closed-by-user" ||
+            linkPopupErr.code === "auth/cancelled-popup-request"
+          ) {
+            setBusy(false);
+            return;
+          }
+          const promptMsg = `An account already exists with ${conflictEmail}. Please sign in with Google or Email first to link your GitHub account.`;
+          setErrorMessage(promptMsg);
+          toast.error(promptMsg);
+          return;
+        }
+      }
+
       const msg = err instanceof Error ? err.message : "Failed to sign in with GitHub";
       setErrorMessage(msg);
       toast.error(msg);

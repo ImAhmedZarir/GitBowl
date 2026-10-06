@@ -192,9 +192,12 @@ function NewRepo() {
           );
         } else {
           const { content, isBinary } = await readUploadedFile(file);
+          const filePath = ((file as any).webkitRelativePath || file.name)
+            .replace(/\\/g, "/")
+            .replace(/^\/+/, "");
           rows.push({
             repo_id: (repo as any).id,
-            path: file.name,
+            path: filePath,
             content,
             is_binary: isBinary,
             size: content.length,
@@ -202,18 +205,37 @@ function NewRepo() {
         }
       }
       if (rows.length) {
-        for (let i = 0; i < rows.length; i += 15) {
-          const chunk = rows.slice(i, i + 15);
-          const { error: fileError } = await supabase.from("repo_files").insert(chunk);
-          if (fileError) throw fileError;
+        const { data: sessData } = await supabase.auth.getSession();
+        const token = sessData?.session?.access_token;
+        const commitRes = await fetch("/api/repo/commit", {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            Authorization: token ? `Bearer ${token}` : "",
+          },
+          body: JSON.stringify({
+            repoId: (repo as any).id,
+            message: "Initial upload",
+            files: rows.map((r) => ({
+              path: r.path,
+              content: r.content,
+              is_binary: r.is_binary,
+            })),
+          }),
+        });
+
+        if (!commitRes.ok) {
+          const commitErr = await commitRes.json().catch(() => ({}));
+          throw new Error(commitErr.error || "Failed to commit initial files");
         }
+      } else {
+        await supabase.from("commits").insert({
+          repo_id: (repo as any).id,
+          author_id: profile.id,
+          message: "Create repository",
+          changes: [],
+        });
       }
-      await supabase.from("commits").insert({
-        repo_id: (repo as any).id,
-        author_id: profile.id,
-        message: rows.length ? "Initial upload" : "Create repository",
-        changes: rows.slice(0, 250).map((r) => ({ path: r.path, type: "added" })),
-      });
 
       if (rows.length) {
         supabase.auth.getSession().then(({ data: sessData }) => {
@@ -303,7 +325,7 @@ function NewRepo() {
         <div className="border-b border-border pb-4 mb-6 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
           <div>
             <h1 className="text-2xl font-bold tracking-tight text-foreground">
-              {activeTab === "create" ? "Create a new repository" : "Import from GitHub"}
+              {activeTab === "create" ? "Create a new repository" : "Git Clone & Import"}
             </h1>
             <p className="mt-1 text-xs text-muted-foreground">
               Repositories live at{" "}
@@ -339,7 +361,7 @@ function NewRepo() {
               }`}
             >
               <DownloadCloud className="h-3.5 w-3.5" />
-              <span>Import from GitHub</span>
+              <span>Git Clone & Import</span>
             </button>
           </div>
         </div>
@@ -444,7 +466,7 @@ function NewRepo() {
             >
               <div className="space-y-1.5">
                 <Label htmlFor="gh-url" className="text-xs">
-                  GitHub Repository URL or owner/repo
+                  Git Repository URL (GitHub, GitLab, Bitbucket, Codeberg, or any Git clone URL)
                 </Label>
                 <div className="relative">
                   <Input
@@ -453,23 +475,25 @@ function NewRepo() {
                     onChange={(e) => {
                       const val = e.target.value;
                       setGithubUrl(val);
-                      // Auto-extract repo name
+                      // Universal auto-extract repo name from any Git URL
                       const clean = val
                         .trim()
-                        .replace(/^https?:\/\/github\.com\//, "")
-                        .replace(/\.git$/, "")
-                        .replace(/\/$/, "");
-                      const parts = clean.split("/");
-                      if (parts[1]) setImportTargetName(parts[1]);
+                        .replace(/\.git$/i, "")
+                        .replace(/\/+$/, "");
+                      const parts = clean.split(/[/:]/);
+                      const last = parts[parts.length - 1];
+                      if (last && !last.includes(".")) {
+                        setImportTargetName(last.toLowerCase().replace(/[^a-z0-9_.-]/g, "-"));
+                      }
                     }}
-                    placeholder="e.g. facebook/react or https://github.com/torvalds/subsurface-for-dirk"
+                    placeholder="e.g. https://github.com/owner/repo, https://gitlab.com/owner/repo.git, or owner/repo"
                     required
                     className="h-9 text-xs font-mono"
                   />
                 </div>
                 <p className="text-[11px] text-muted-foreground">
-                  Enter any public GitHub repository URL, or pick from your connected GitHub account
-                  below.
+                  Works with any Git host (GitHub, GitLab, Bitbucket, Codeberg, or custom Git
+                  server). Clones all files and whole directory tree into GitBowl.
                 </p>
               </div>
 
@@ -513,12 +537,12 @@ function NewRepo() {
                 {importBusy ? (
                   <>
                     <Loader2 className="h-3.5 w-3.5 animate-spin" />
-                    <span>{importStatus || "Importing repository..."}</span>
+                    <span>{importStatus || "Cloning repository with Git CLI..."}</span>
                   </>
                 ) : (
                   <>
                     <DownloadCloud className="h-3.5 w-3.5" />
-                    <span>Verify & Import Repository</span>
+                    <span>Clone & Import Repository</span>
                   </>
                 )}
               </Button>

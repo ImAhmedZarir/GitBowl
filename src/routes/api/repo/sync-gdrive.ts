@@ -106,10 +106,12 @@ export const Route = createFileRoute("/api/repo/sync-gdrive")({
           await supabase.from("storage_backups" as any).upsert(
             {
               repo_id: repo.id,
+              kind: "manifest",
               sha: "head",
               status: syncResult.success ? "done" : "failed",
               size: totalBytes,
               attempts: 1,
+              completed_at: syncResult.success ? new Date().toISOString() : null,
               last_error: syncResult.errors.length
                 ? syncResult.errors.slice(0, 3).join("; ")
                 : null,

@@ -266,6 +266,31 @@ function RepoPage() {
 
   const isOwner = !!(user && repo && user.id === repo.owner_id);
 
+  // Check if current user has collaborator write permission
+  const { data: collabPerm } = useQuery({
+    queryKey: ["repo-collab-perm", repo?.id, user?.id],
+    enabled: !!(repo?.id && user?.id && !isOwner),
+    queryFn: async () => {
+      try {
+        const { data } = await supabase
+          .from("repo_collaborators" as any)
+          .select("permission")
+          .eq("repo_id", repo.id)
+          .eq("user_id", user!.id)
+          .maybeSingle();
+        return (data as any)?.permission || null;
+      } catch {
+        return null;
+      }
+    },
+    staleTime: 1000 * 60,
+  });
+
+  const canWrite =
+    isOwner ||
+    (collabPerm && ["write", "maintain", "admin"].includes(collabPerm)) ||
+    profile?.role === "admin";
+
   // Real-time synchronization for repo files and commits
   useEffect(() => {
     if (typeof window === "undefined" || !repo?.id) return;
@@ -513,7 +538,7 @@ function RepoPage() {
             repo={repo}
             filesMeta={filesMeta}
             loadingFiles={loadingFiles}
-            isOwner={isOwner}
+            isOwner={canWrite}
             authorId={profile?.id}
             onSaved={() => {
               qc.invalidateQueries({ queryKey: ["repo-files-meta", repo.id] });
@@ -681,7 +706,10 @@ function CodeTab({ repo, filesMeta, loadingFiles, isOwner, authorId, onSaved }: 
     const staged: Record<string, { content: string; is_binary: boolean }> = {};
     for (const f of Array.from(files)) {
       const { content, isBinary } = await readUploadedFile(f);
-      staged[f.name] = { content, is_binary: isBinary };
+      const relName = ((f as any).webkitRelativePath || f.name)
+        .replace(/\\/g, "/")
+        .replace(/^\/+/, "");
+      staged[relName] = { content, is_binary: isBinary };
     }
 
     setDirtyFiles((prev) => ({ ...prev, ...staged }));

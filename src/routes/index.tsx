@@ -74,6 +74,28 @@ export const Route = createFileRoute("/")({
       { name: "twitter:image", content: "https://gitbowl.zone.id/og-image.png" },
     ],
     links: [{ rel: "canonical", href: "https://gitbowl.zone.id/" }],
+    scripts: [
+      {
+        type: "application/ld+json",
+        children: JSON.stringify({
+          "@context": "https://schema.org",
+          "@type": "WebSite",
+          name: "GitBowl",
+          alternateName: "GitBowl Cloud",
+          url: "https://gitbowl.zone.id/",
+          description:
+            "High-performance Git repository hosting platform with Smart-HTTP protocol, private and public repos, Monaco IDE, and 1-click GitHub importer.",
+          potentialAction: {
+            "@type": "SearchAction",
+            target: {
+              "@type": "EntryPoint",
+              urlTemplate: "https://gitbowl.zone.id/search?q={search_term_string}",
+            },
+            "query-input": "required name=search_term_string",
+          },
+        }),
+      },
+    ],
   }),
   component: HomePage,
 });

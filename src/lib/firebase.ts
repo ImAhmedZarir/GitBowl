@@ -5,6 +5,8 @@ import {
   GithubAuthProvider,
   signInWithPopup,
   signOut as fbSignOut,
+  fetchSignInMethodsForEmail,
+  linkWithCredential,
 } from "firebase/auth";
 import { getAnalytics, isSupported } from "firebase/analytics";
 
@@ -40,4 +42,10 @@ if (typeof window !== "undefined") {
     .catch(() => {});
 }
 
-export { signInWithPopup, fbSignOut, GithubAuthProvider };
+export {
+  signInWithPopup,
+  fbSignOut,
+  GithubAuthProvider,
+  fetchSignInMethodsForEmail,
+  linkWithCredential,
+};

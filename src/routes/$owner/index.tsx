@@ -80,19 +80,73 @@ export const Route = createFileRoute("/$owner/")({
   component: OwnerPage,
 });
 
-// Compute actual 52-week contribution heatmap from real commits and repositories
+// Compute actual 52-week contribution heatmap from real commits, repositories, PRs, and issues
 function computeRealContributionWeeks(
   commitsInput?: { created_at: string }[] | null,
   reposInput?: { created_at: string }[] | null,
-  selectedYear: number = 2026,
+  prsInput?: { created_at: string }[] | null,
+  issuesInput?: { created_at: string }[] | null,
+  selectedYear: number = new Date().getUTCFullYear(),
 ) {
   const commits = Array.isArray(commitsInput) ? commitsInput : [];
   const repos = Array.isArray(reposInput) ? reposInput : [];
+  const prs = Array.isArray(prsInput) ? prsInput : [];
+  const issues = Array.isArray(issuesInput) ? issuesInput : [];
 
-  const months = [
-    "Oct",
-    "Nov",
-    "Dec",
+  // Map events to date counts (YYYY-MM-DD)
+  const countMap: Record<string, number> = {};
+
+  for (const c of commits) {
+    if (!c.created_at) continue;
+    const dStr = c.created_at.split("T")[0];
+    if (dStr) countMap[dStr] = (countMap[dStr] || 0) + 1;
+  }
+
+  for (const r of repos) {
+    if (!r.created_at) continue;
+    const dStr = r.created_at.split("T")[0];
+    if (dStr) countMap[dStr] = (countMap[dStr] || 0) + 1;
+  }
+
+  for (const p of prs) {
+    if (!p.created_at) continue;
+    const dStr = p.created_at.split("T")[0];
+    if (dStr) countMap[dStr] = (countMap[dStr] || 0) + 1;
+  }
+
+  for (const i of issues) {
+    if (!i.created_at) continue;
+    const dStr = i.created_at.split("T")[0];
+    if (dStr) countMap[dStr] = (countMap[dStr] || 0) + 1;
+  }
+
+  const now = new Date();
+  const currentYear = now.getUTCFullYear();
+  const isCurrentYear = selectedYear === currentYear;
+
+  // For current year: end on the coming Saturday (end of current week)
+  // For previous years: end on the Saturday on/after Dec 31
+  let endDate: Date;
+  if (isCurrentYear) {
+    const today = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate()));
+    const dayOfWeek = today.getUTCDay(); // 0 = Sun, 6 = Sat
+    endDate = new Date(today);
+    endDate.setUTCDate(today.getUTCDate() + (6 - dayOfWeek));
+  } else {
+    const dec31 = new Date(Date.UTC(selectedYear, 11, 31));
+    const dayOfWeek = dec31.getUTCDay();
+    endDate = new Date(dec31);
+    endDate.setUTCDate(dec31.getUTCDate() + (6 - dayOfWeek));
+  }
+
+  // Exactly 52 weeks = 52 * 7 = 364 days
+  const startDate = new Date(endDate);
+  startDate.setUTCDate(endDate.getUTCDate() - (52 * 7 - 1));
+
+  let totalCount = 0;
+  const weeks: { date: string; count: number; level: number }[][] = [];
+  const monthLabels: { label: string; col: number }[] = [];
+  const monthNames = [
     "Jan",
     "Feb",
     "Mar",
@@ -102,49 +156,37 @@ function computeRealContributionWeeks(
     "Jul",
     "Aug",
     "Sep",
+    "Oct",
+    "Nov",
+    "Dec",
   ];
-
-  // Map events to date counts (YYYY-MM-DD)
-  const countMap: Record<string, number> = {};
-
-  for (const c of commits) {
-    if (!c.created_at) continue;
-    const dStr = c.created_at.split("T")[0];
-    if (dStr) {
-      countMap[dStr] = (countMap[dStr] || 0) + 1;
-    }
-  }
-
-  for (const r of repos) {
-    if (!r.created_at) continue;
-    const dStr = r.created_at.split("T")[0];
-    if (dStr) {
-      countMap[dStr] = (countMap[dStr] || 0) + 1;
-    }
-  }
-
-  const baseDate = new Date(selectedYear, 8, 30); // End of September of selected year
-  baseDate.setDate(baseDate.getDate() - (52 * 7 - 1));
-
-  let totalCount = 0;
-  const weeks: { date: string; count: number; level: number }[][] = [];
+  let prevMonth = -1;
 
   for (let w = 0; w < 52; w++) {
     const week: { date: string; count: number; level: number }[] = [];
     for (let d = 0; d < 7; d++) {
-      const currentDate = new Date(baseDate);
-      currentDate.setDate(baseDate.getDate() + (w * 7 + d));
-      const dateStr = currentDate.toISOString().split("T")[0] || "";
+      const cur = new Date(startDate);
+      cur.setUTCDate(startDate.getUTCDate() + (w * 7 + d));
+      const dateStr = cur.toISOString().split("T")[0] || "";
 
-      const count = (dateStr ? countMap[dateStr] : 0) || 0;
+      if (d === 0) {
+        const m = cur.getUTCMonth();
+        if (m !== prevMonth) {
+          monthLabels.push({ label: monthNames[m]!, col: w });
+          prevMonth = m;
+        }
+      }
+
+      // If viewing a previous year, only count days in that year; for current year, count all trailing 52 weeks
+      const inYear = isCurrentYear || cur.getUTCFullYear() === selectedYear;
+      const count = inYear && dateStr ? countMap[dateStr] || 0 : 0;
       totalCount += count;
 
-      // Realistic intensity level based on commit count
       let level = 0;
       if (count === 0) level = 0;
-      else if (count <= 2) level = 1;
-      else if (count <= 5) level = 2;
-      else if (count <= 8) level = 3;
+      else if (count <= 1) level = 1;
+      else if (count <= 3) level = 2;
+      else if (count <= 6) level = 3;
       else level = 4;
 
       week.push({
@@ -156,7 +198,7 @@ function computeRealContributionWeeks(
     weeks.push(week);
   }
 
-  return { weeks, months, totalCount };
+  return { weeks, monthLabels, totalCount };
 }
 
 function OwnerPage() {
@@ -229,7 +271,7 @@ function OwnerPage() {
         };
       }
 
-      const [reposRes, commitsRes, starsRes] = await Promise.all([
+      const [reposRes, commitsRes, starsRes, prsRes, issuesRes] = await Promise.all([
         supabase
           .from("repositories" as any)
           .select("*")
@@ -241,6 +283,14 @@ function OwnerPage() {
           .eq("author_id", profile.id)
           .order("created_at", { ascending: false }),
         supabase.from("stars").select("repo_id, repositories(*)").eq("user_id", profile.id),
+        supabase
+          .from("pull_requests" as any)
+          .select("id, repo_id, state, created_at")
+          .eq("author_id", profile.id),
+        supabase
+          .from("issues" as any)
+          .select("id, repo_id, state, created_at")
+          .eq("author_id", profile.id),
       ]);
 
       return {
@@ -248,9 +298,56 @@ function OwnerPage() {
         repos: (reposRes.data ?? []) as any[],
         commits: commitsRes.data ?? [],
         stars: starsRes.data ?? [],
+        pullRequests: (prsRes.data ?? []) as any[],
+        issues: (issuesRes.data ?? []) as any[],
       };
     },
   });
+
+  // Real-time synchronization for profile contributions, repos, and activity
+  useEffect(() => {
+    if (typeof window === "undefined" || !data?.profile?.id) return;
+    const profileId = data.profile.id;
+    let channel: any = null;
+    try {
+      channel = supabase
+        .channel(`profile-realtime-${profileId}`)
+        .on(
+          "postgres_changes",
+          { event: "*", schema: "public", table: "commits", filter: `author_id=eq.${profileId}` },
+          () => {
+            qc.invalidateQueries({ queryKey: ["owner-profile", owner] });
+          },
+        )
+        .on(
+          "postgres_changes",
+          { event: "*", schema: "public", table: "repositories", filter: `owner_id=eq.${profileId}` },
+          () => {
+            qc.invalidateQueries({ queryKey: ["owner-profile", owner] });
+          },
+        )
+        .on(
+          "postgres_changes",
+          { event: "*", schema: "public", table: "pull_requests", filter: `author_id=eq.${profileId}` },
+          () => {
+            qc.invalidateQueries({ queryKey: ["owner-profile", owner] });
+          },
+        )
+        .on(
+          "postgres_changes",
+          { event: "*", schema: "public", table: "issues", filter: `author_id=eq.${profileId}` },
+          () => {
+            qc.invalidateQueries({ queryKey: ["owner-profile", owner] });
+          },
+        )
+        .subscribe();
+    } catch {
+      // ignore
+    }
+    return () => {
+      if (channel) supabase.removeChannel(channel).catch(() => {});
+    };
+  }, [data?.profile?.id, owner, qc]);
 
   // 2. Fetch Real Followers / Following and metadata
   const { data: followData, refetch: refetchFollow } = useQuery({
@@ -312,11 +409,110 @@ function OwnerPage() {
     }
   }
 
-  // Real contributions calculated from database
-  const { weeks, months, totalCount } = useMemo(
-    () => computeRealContributionWeeks(data?.commits, data?.repos, selectedYear),
-    [data?.commits, data?.repos, selectedYear],
+  // Real contributions calculated from database (commits, repos, PRs, issues)
+  const { weeks, monthLabels, totalCount } = useMemo(
+    () =>
+      computeRealContributionWeeks(
+        data?.commits,
+        data?.repos,
+        data?.pullRequests,
+        data?.issues,
+        selectedYear,
+      ),
+    [data?.commits, data?.repos, data?.pullRequests, data?.issues, selectedYear],
   );
+
+  // Dynamically compute REAL earned achievements from actual database data (no fake achievements!)
+  const earnedAchievements = useMemo(() => {
+    const achs: Array<{
+      id: string;
+      emoji: string;
+      title: string;
+      description: string;
+      bgClass: string;
+    }> = [];
+
+    const repoCount = data?.repos?.length || 0;
+    const commitCount = data?.commits?.length || 0;
+    const starCount = data?.stars?.length || 0;
+    const prCount = data?.pullRequests?.length || 0;
+    const mergedPrCount =
+      data?.pullRequests?.filter((p: any) => p.state === "merged")?.length || 0;
+    const issueCount = data?.issues?.length || 0;
+    const hasPublicRepo = data?.repos?.some((r: any) => !r.is_private) || false;
+
+    if (mergedPrCount >= 1) {
+      achs.push({
+        id: "pull-shark",
+        emoji: "🦈",
+        title: "Pull Shark",
+        description: `Merged ${mergedPrCount} pull request(s) on GitBowl`,
+        bgClass: "bg-cyan-500/10 border-cyan-500/30 text-cyan-400",
+      });
+    }
+
+    if (repoCount >= 1) {
+      achs.push({
+        id: "first-flight",
+        emoji: "🚀",
+        title: "First Flight",
+        description: "Created first repository on GitBowl",
+        bgClass: "bg-blue-500/10 border-blue-500/30 text-blue-400",
+      });
+    }
+
+    if (commitCount >= 5) {
+      achs.push({
+        id: "code-crafter",
+        emoji: "💻",
+        title: "Code Crafter",
+        description: `Authored ${commitCount} verified commits to repositories`,
+        bgClass: "bg-emerald-500/10 border-emerald-500/30 text-emerald-400",
+      });
+    }
+
+    if (hasPublicRepo) {
+      achs.push({
+        id: "open-sourcer",
+        emoji: "🌐",
+        title: "Open Sourcer",
+        description: "Published public open-source code on GitBowl",
+        bgClass: "bg-amber-500/10 border-amber-500/30 text-amber-400",
+      });
+    }
+
+    if (starCount >= 1) {
+      achs.push({
+        id: "stargazer",
+        emoji: "⭐",
+        title: "Stargazer",
+        description: `Starred ${starCount} repository on GitBowl`,
+        bgClass: "bg-yellow-500/10 border-yellow-500/30 text-yellow-400",
+      });
+    }
+
+    if (issueCount >= 1) {
+      achs.push({
+        id: "bug-hunter",
+        emoji: "🎯",
+        title: "Bug Hunter",
+        description: `Opened ${issueCount} issue report(s)`,
+        bgClass: "bg-rose-500/10 border-rose-500/30 text-rose-400",
+      });
+    }
+
+    if (commitCount >= 10) {
+      achs.push({
+        id: "galaxy-brain",
+        emoji: "🧠",
+        title: "Galaxy Brain",
+        description: `Authored ${commitCount} commits on GitBowl`,
+        bgClass: "bg-purple-500/10 border-purple-500/30 text-purple-400",
+      });
+    }
+
+    return achs;
+  }, [data?.repos, data?.commits, data?.stars, data?.pullRequests, data?.issues]);
 
   // Filter repositories
   const filteredRepos = useMemo(() => {
@@ -608,26 +804,23 @@ function OwnerPage() {
             {/* Achievements */}
             <div className="pt-2 border-t border-border/80">
               <h2 className="text-xs font-semibold text-foreground">Achievements</h2>
-              <div className="flex items-center gap-2 mt-2">
-                <div
-                  className="h-8 w-8 rounded-full border border-border bg-primary/10 flex items-center justify-center text-xs font-bold text-primary"
-                  title="Pull Shark"
-                >
-                  🦈
+              {earnedAchievements.length > 0 ? (
+                <div className="flex flex-wrap items-center gap-2 mt-2">
+                  {earnedAchievements.map((ach) => (
+                    <div
+                      key={ach.id}
+                      className={`h-8 w-8 rounded-full border flex items-center justify-center text-sm shadow-xs ${ach.bgClass}`}
+                      title={`${ach.title}: ${ach.description}`}
+                    >
+                      {ach.emoji}
+                    </div>
+                  ))}
                 </div>
-                <div
-                  className="h-8 w-8 rounded-full border border-border bg-warning/10 flex items-center justify-center text-xs font-bold text-warning"
-                  title="Quickdraw"
-                >
-                  ⚡
-                </div>
-                <div
-                  className="h-8 w-8 rounded-full border border-border bg-success/10 flex items-center justify-center text-xs font-bold text-success"
-                  title="Galaxy Brain"
-                >
-                  🧠
-                </div>
-              </div>
+              ) : (
+                <p className="text-[11px] text-muted-foreground mt-1.5 italic">
+                  No achievements earned yet. Commit code and create repositories to unlock badges!
+                </p>
+              )}
             </div>
           </aside>
 
@@ -673,7 +866,10 @@ function OwnerPage() {
                 <section className="space-y-3">
                   <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
                     <h2 className="text-sm font-semibold text-foreground">
-                      {totalCount} contribution{totalCount !== 1 ? "s" : ""} in the last year
+                      {totalCount} contribution{totalCount !== 1 ? "s" : ""} in{" "}
+                      {selectedYear === new Date().getUTCFullYear()
+                        ? "the last year"
+                        : selectedYear}
                     </h2>
 
                     <div className="flex items-center gap-2 self-end sm:self-auto">
@@ -711,9 +907,15 @@ function OwnerPage() {
                     )}
 
                     {/* Months Header */}
-                    <div className="flex text-[10px] text-muted-foreground font-mono mb-1 pl-6 gap-6 sm:gap-8">
-                      {months.map((m, idx) => (
-                        <span key={idx}>{m}</span>
+                    <div className="relative h-4 text-[10px] text-muted-foreground font-mono mb-1 ml-7">
+                      {monthLabels.map((m, idx) => (
+                        <span
+                          key={idx}
+                          className="absolute text-center"
+                          style={{ left: `${(m.col / 52) * 100}%` }}
+                        >
+                          {m.label}
+                        </span>
                       ))}
                     </div>
 
