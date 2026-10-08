@@ -1,5 +1,6 @@
 import JSZip from "jszip";
 import { supabase } from "@/integrations/supabase/client";
+import { sanitizeUnicode, sanitizeFilePath } from "@/lib/unicode";
 
 export type RepoFile = {
   id: string;
@@ -93,14 +94,20 @@ export function buildTree(files: RepoFile[]): TreeNode[] {
 export async function readUploadedFile(
   file: File,
 ): Promise<{ content: string; isBinary: boolean }> {
-  if (isBinaryPath(file.name)) {
-    const buf = await file.arrayBuffer();
+  const isBinary = isBinaryPath(file.name);
+  const buf = await file.arrayBuffer();
+  const bytes = new Uint8Array(buf);
+  const hasNullByte = bytes.includes(0);
+
+  if (isBinary || hasNullByte) {
     let binary = "";
-    const bytes = new Uint8Array(buf);
     for (let i = 0; i < bytes.length; i++) binary += String.fromCharCode(bytes[i]!);
     return { content: btoa(binary), isBinary: true };
   }
-  return { content: await file.text(), isBinary: false };
+
+  const rawText = await file.text();
+  const clean = sanitizeUnicode(rawText);
+  return { content: clean, isBinary: false };
 }
 
 export async function filesFromZip(
@@ -112,12 +119,20 @@ export async function filesFromZip(
   const out: { path: string; content: string; isBinary: boolean }[] = [];
   for (const entry of entries) {
     if (entry.name.includes("__MACOSX/") || entry.name.endsWith(".DS_Store")) continue;
-    const path = commonRoot ? entry.name.slice(commonRoot.length + 1) : entry.name;
+    const rawPath = commonRoot ? entry.name.slice(commonRoot.length + 1) : entry.name;
+    const path = sanitizeFilePath(rawPath);
     if (!path) continue;
     if (isBinaryPath(path)) {
       out.push({ path, content: await entry.async("base64"), isBinary: true });
     } else {
-      out.push({ path, content: await entry.async("string"), isBinary: false });
+      const u8 = await entry.async("uint8array");
+      if (u8.includes(0)) {
+        // If file contains NUL bytes, safely treat as binary Base64 to prevent 22P05
+        out.push({ path, content: await entry.async("base64"), isBinary: true });
+      } else {
+        const textStr = await entry.async("string");
+        out.push({ path, content: sanitizeUnicode(textStr), isBinary: false });
+      }
     }
   }
   return out;

@@ -321,14 +321,24 @@ function OwnerPage() {
         )
         .on(
           "postgres_changes",
-          { event: "*", schema: "public", table: "repositories", filter: `owner_id=eq.${profileId}` },
+          {
+            event: "*",
+            schema: "public",
+            table: "repositories",
+            filter: `owner_id=eq.${profileId}`,
+          },
           () => {
             qc.invalidateQueries({ queryKey: ["owner-profile", owner] });
           },
         )
         .on(
           "postgres_changes",
-          { event: "*", schema: "public", table: "pull_requests", filter: `author_id=eq.${profileId}` },
+          {
+            event: "*",
+            schema: "public",
+            table: "pull_requests",
+            filter: `author_id=eq.${profileId}`,
+          },
           () => {
             qc.invalidateQueries({ queryKey: ["owner-profile", owner] });
           },
@@ -436,8 +446,7 @@ function OwnerPage() {
     const commitCount = data?.commits?.length || 0;
     const starCount = data?.stars?.length || 0;
     const prCount = data?.pullRequests?.length || 0;
-    const mergedPrCount =
-      data?.pullRequests?.filter((p: any) => p.state === "merged")?.length || 0;
+    const mergedPrCount = data?.pullRequests?.filter((p: any) => p.state === "merged")?.length || 0;
     const issueCount = data?.issues?.length || 0;
     const hasPublicRepo = data?.repos?.some((r: any) => !r.is_private) || false;
 

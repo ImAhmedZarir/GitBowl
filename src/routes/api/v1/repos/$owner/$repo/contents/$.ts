@@ -5,6 +5,8 @@ import crypto from "node:crypto";
 import { getSupabaseAdmin } from "@/integrations/supabase/client.server";
 import { findRepo, hasRepoReadAccess, hasRepoWriteAccess } from "@/lib/git.server";
 import { createCommit } from "@/lib/commit-service.server";
+import { isBinaryPath } from "@/lib/repo";
+import { sanitizeUnicode, sanitizeFilePath, sanitizeCommitMessage } from "@/lib/unicode";
 import {
   authenticateApiV1,
   checkApiV1RateLimit,
@@ -136,15 +138,22 @@ export const Route = createFileRoute("/api/v1/repos/$owner/$repo/contents/$")({
         if (!canWrite) return v1Response({ message: "Forbidden" }, 403, rateLimit);
 
         const body = await request.json().catch(() => ({}));
-        const message = (body.message || `Update ${filePath}`).trim();
+        const message = sanitizeCommitMessage(body.message, `Update ${filePath}`);
         const base64Content = body.content || "";
         const branch = (body.branch || repo.default_branch || "main").trim();
 
         let rawContent = "";
+        let isBinary = isBinaryPath(filePath);
         try {
-          rawContent = Buffer.from(base64Content, "base64").toString("utf8");
+          const buf = Buffer.from(base64Content, "base64");
+          if (buf.includes(0) || isBinary) {
+            isBinary = true;
+            rawContent = base64Content;
+          } else {
+            rawContent = sanitizeUnicode(buf.toString("utf8"));
+          }
         } catch {
-          rawContent = base64Content;
+          rawContent = sanitizeUnicode(base64Content);
         }
 
         // Commit file via commit service
@@ -153,7 +162,7 @@ export const Route = createFileRoute("/api/v1/repos/$owner/$repo/contents/$")({
           authorId: auth.userId,
           branch,
           message,
-          files: [{ path: filePath, content: rawContent, is_binary: false }],
+          files: [{ path: sanitizeFilePath(filePath), content: rawContent, is_binary: isBinary }],
         });
 
         const sha = crypto

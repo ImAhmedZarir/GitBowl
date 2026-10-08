@@ -3,6 +3,7 @@
 // optimistic locking (expectedHeadSha), and durable outbox backup queue.
 import { createHash } from "node:crypto";
 import { supabaseAdmin } from "@/integrations/supabase/client.server";
+import { sanitizeFileRecord, sanitizeCommitMessage, sanitizeFilePath } from "@/lib/unicode";
 
 export interface CommitFileChange {
   path: string;
@@ -229,25 +230,33 @@ export async function commitChanges(params: CommitChangesParams) {
 
   // 4. Compute New Commit SHA
   const now = new Date().toISOString();
-  const commitMsg = message.trim() || "Update files";
+  const commitMsg = sanitizeCommitMessage(message, "Update files");
   const parentSha = repo.head_sha || "0000000000000000000000000000000000000000";
+
+  // Sanitize each file record for complete database and unicode safety
+  const sanitizedFiles = files.map((f) =>
+    sanitizeFileRecord({
+      path: f.path,
+      content: f.content ?? "",
+      is_binary: Boolean(f.is_binary),
+    }),
+  );
+
   const newCommitSha = createHash("sha1")
-    .update(`${parentSha}:${user.id}:${commitMsg}:${now}:${files.map((f) => f.path).join(",")}`)
+    .update(
+      `${parentSha}:${user.id}:${commitMsg}:${now}:${sanitizedFiles.map((f) => f.path).join(",")}`,
+    )
     .digest("hex");
 
   // 5. Atomic File Upserts
-  const upserts = files.map((f) => {
-    const rawContent = f.content ?? "";
-    const sizeInBytes = Buffer.byteLength(rawContent, "utf8");
-    return {
-      repo_id: repoId,
-      path: f.path,
-      content: rawContent,
-      is_binary: Boolean(f.is_binary),
-      size: sizeInBytes,
-      updated_at: now,
-    };
-  });
+  const upserts = sanitizedFiles.map((f) => ({
+    repo_id: repoId,
+    path: f.path,
+    content: f.content,
+    is_binary: f.is_binary,
+    size: f.size,
+    updated_at: now,
+  }));
 
   const { error: upsertErr } = await supabaseAdmin
     .from("repo_files")
@@ -264,7 +273,7 @@ export async function commitChanges(params: CommitChangesParams) {
       repo_id: repoId,
       author_id: user.id, // Strictly use verified authenticated user ID!
       message: commitMsg,
-      changes: files.map((f) => ({ path: f.path, type: "modified" })),
+      changes: sanitizedFiles.map((f) => ({ path: f.path, type: "modified" })),
       created_at: now,
     })
     .select()
@@ -338,15 +347,23 @@ export async function createCommit(params: {
   message: string;
   files: CommitFileChange[];
 }): Promise<{ commitId: string }> {
+  const sanitizedList: CommitFileChange[] = [];
   for (const f of params.files) {
     if (f.content !== undefined) {
+      const sanitized = sanitizeFileRecord({
+        path: f.path,
+        content: f.content,
+        is_binary: Boolean(f.is_binary),
+      });
+      sanitizedList.push(sanitized);
+
       await supabaseAdmin.from("repo_files" as any).upsert(
         {
           repo_id: params.repoId,
-          path: f.path,
-          content: f.content,
-          is_binary: !!f.is_binary,
-          size: f.content.length,
+          path: sanitized.path,
+          content: sanitized.content,
+          is_binary: sanitized.is_binary,
+          size: sanitized.size,
           updated_at: new Date().toISOString(),
         },
         { onConflict: "repo_id,path" },
@@ -359,8 +376,8 @@ export async function createCommit(params: {
     .insert({
       repo_id: params.repoId,
       author_id: params.authorId,
-      message: params.message,
-      changes: params.files.map((f) => ({ path: f.path, type: "modified" })),
+      message: sanitizeCommitMessage(params.message, "Update files"),
+      changes: sanitizedList.map((f) => ({ path: sanitizeFilePath(f.path), type: "modified" })),
     })
     .select()
     .single();

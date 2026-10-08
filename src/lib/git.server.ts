@@ -7,6 +7,7 @@ import * as pako from "pako";
 import { createClient } from "@supabase/supabase-js";
 import type { Database } from "@/integrations/supabase/types";
 import { syncFilesToGoogleDrive } from "@/lib/gdrive.server";
+import { sanitizeFileRecord, sanitizeCommitMessage, sanitizeFilePath } from "@/lib/unicode";
 
 type Admin = ReturnType<typeof createClient<Database>>;
 type GitObj = { type: string; body: Buffer };
@@ -669,12 +670,14 @@ export async function receivePack(admin: Admin, repo: Repo, userId: string, requ
             const text = bytes.toString("utf8");
             const binary =
               BINARY_EXT.test(p) || bytes.includes(0) || !Buffer.from(text, "utf8").equals(bytes);
-            files.push({
-              path: p,
-              content: binary ? bytes.toString("base64") : text,
-              is_binary: binary,
-              size: bytes.length,
-            });
+            files.push(
+              sanitizeFileRecord({
+                path: p,
+                content: binary ? bytes.toString("base64") : text,
+                is_binary: binary,
+                size: bytes.length,
+              }),
+            );
           }
         }
       };
@@ -721,10 +724,13 @@ export async function receivePack(admin: Admin, repo: Repo, userId: string, requ
         const changes = [
           ...files
             .filter((f) => oldMap.get(f.path) !== f.content)
-            .map((f) => ({ path: f.path, type: oldMap.has(f.path) ? "modified" : "added" })),
+            .map((f) => ({
+              path: sanitizeFilePath(f.path),
+              type: oldMap.has(f.path) ? "modified" : "added",
+            })),
           ...old
             .filter((f) => !files.some((n) => n.path === f.path))
-            .map((f) => ({ path: f.path, type: "deleted" })),
+            .map((f) => ({ path: sanitizeFilePath(f.path), type: "deleted" })),
         ];
         // Incremental updates: only upsert changed/added files, and delete removed files
         const toUpsert = files.filter((f) => oldMap.get(f.path) !== f.content);
@@ -734,10 +740,13 @@ export async function receivePack(admin: Admin, repo: Repo, userId: string, requ
 
         if (toUpsert.length) {
           for (let i = 0; i < toUpsert.length; i += 100) {
-            const { error } = await admin.from("repo_files").upsert(
-              toUpsert.slice(i, i + 100).map((f) => ({ ...f, repo_id: repo.id })),
-              { onConflict: "repo_id,path" },
-            );
+            const batchRows = toUpsert.slice(i, i + 100).map((f) => {
+              const s = sanitizeFileRecord(f);
+              return { ...s, repo_id: repo.id };
+            });
+            const { error } = await admin
+              .from("repo_files")
+              .upsert(batchRows, { onConflict: "repo_id,path" });
             if (error) throw error;
           }
 
@@ -772,7 +781,7 @@ export async function receivePack(admin: Admin, repo: Repo, userId: string, requ
         const rows = msgs.reverse().map((m, i, arr) => ({
           repo_id: repo.id,
           author_id: userId,
-          message: m,
+          message: sanitizeCommitMessage(m, "Push"),
           changes: i === arr.length - 1 ? changes : [],
           created_at: new Date(now - (arr.length - 1 - i) * 1000).toISOString(),
         }));

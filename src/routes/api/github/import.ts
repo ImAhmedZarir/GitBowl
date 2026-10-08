@@ -10,6 +10,13 @@ import { syncFilesToGoogleDrive } from "@/lib/gdrive.server";
 import { createNotification } from "@/lib/notifications.server";
 import { notifySearchEngines } from "@/lib/indexnow.server";
 import { materialize } from "@/lib/git.server";
+import {
+  sanitizeUnicode,
+  sanitizeFilePath,
+  sanitizeFileRecord,
+  sanitizeCommitMessage,
+  formatFriendlyErrorMessage,
+} from "@/lib/unicode";
 
 const execFileAsync = promisify(execFile);
 
@@ -149,25 +156,26 @@ async function walkClonedDirectory(
         const buf = await fs.readFile(fullPath);
 
         let content: string;
-        let isBin = isBinary;
+        let isBin = isBinary || buf.includes(0);
 
         if (isBin) {
           content = buf.toString("base64");
         } else {
-          if (buf.includes(0)) {
+          content = sanitizeUnicode(buf.toString("utf-8"));
+          if (content.includes("\0")) {
             isBin = true;
             content = buf.toString("base64");
-          } else {
-            content = buf.toString("utf-8");
           }
         }
 
-        files.push({
-          path: itemRel,
-          content,
-          is_binary: isBin,
-          size: stat.size,
-        });
+        files.push(
+          sanitizeFileRecord({
+            path: itemRel,
+            content,
+            is_binary: isBin,
+            size: isBin ? buf.length : Buffer.byteLength(content, "utf-8"),
+          }),
+        );
       } catch (fileErr) {
         console.warn(`[Import] Warning reading ${itemRel}:`, fileErr);
       }
@@ -286,21 +294,36 @@ async function fallbackDownloadGithubZip(
       : rawPath;
     if (!cleanPath || cleanPath.startsWith(".git/")) continue;
 
+    const buf = await entry.async("nodebuffer");
     const isBinary =
       BINARY_EXT.test(cleanPath) ||
-      /\.(png|jpe?g|gif|webp|ico|wasm|exe|dll|pdf|zip)$/i.test(cleanPath);
+      /\.(png|jpe?g|gif|webp|ico|wasm|exe|dll|pdf|zip|bin|dat|sqlite|db|pyc|jar|class|so|dylib|wasm)$/i.test(
+        cleanPath,
+      ) ||
+      buf.includes(0);
 
     let content: string;
-    let size = 0;
-    if (isBinary) {
-      content = await entry.async("base64");
-      size = Math.round((content.length * 3) / 4);
+    let size = buf.length;
+    let isBin = isBinary;
+
+    if (isBin) {
+      content = buf.toString("base64");
     } else {
-      content = await entry.async("string");
-      size = content.length;
+      content = sanitizeUnicode(buf.toString("utf-8"));
+      if (content.includes("\0")) {
+        isBin = true;
+        content = buf.toString("base64");
+      }
     }
 
-    files.push({ path: cleanPath, content, is_binary: isBinary, size });
+    files.push(
+      sanitizeFileRecord({
+        path: cleanPath,
+        content,
+        is_binary: isBin,
+        size,
+      }),
+    );
   }
 
   return files;
@@ -318,11 +341,14 @@ async function insertFilesAdaptively(
   const MAX_BATCH_FILES = 25;
   const MAX_BATCH_BYTES = 180 * 1024; // 180 KB payload cap per statement
 
+  // Sanitize all files before chunking
+  const sanitized = files.map((f) => sanitizeFileRecord(f));
+
   const batches: FileItem[][] = [];
   let currentBatch: FileItem[] = [];
   let currentBatchBytes = 0;
 
-  for (const file of files) {
+  for (const file of sanitized) {
     const fileBytes = (file.content?.length || 0) + (file.size || 0);
 
     if (fileBytes >= MAX_BATCH_BYTES) {
@@ -360,17 +386,64 @@ async function insertBatchWithRetry(
   batch: FileItem[],
   retries = 2,
 ): Promise<void> {
-  const rows = batch.map((f) => ({
-    ...f,
-    repo_id: repoId,
-    updated_at: new Date().toISOString(),
-  }));
+  // Always sanitize every single row prior to database insertion
+  const rows = batch.map((f) => {
+    const s = sanitizeFileRecord(f);
+    return {
+      path: s.path,
+      content: s.content,
+      is_binary: s.is_binary,
+      size: s.size,
+      repo_id: repoId,
+      updated_at: new Date().toISOString(),
+    };
+  });
 
-  const { error } = await supabase
-    .from("repo_files")
-    .upsert(rows, { onConflict: "repo_id,path" });
+  const { error } = await supabase.from("repo_files").upsert(rows, { onConflict: "repo_id,path" });
 
   if (error) {
+    // Check if error is related to PostgreSQL Unicode escape sequence or invalid byte sequence
+    const errText = (error.message || "").toLowerCase();
+    const isUnicodeError =
+      errText.includes("unicode escape") ||
+      errText.includes("22p05") ||
+      errText.includes("invalid byte sequence") ||
+      errText.includes("cannot be converted to text") ||
+      errText.includes("cannot be converted to type jsonb");
+
+    if (isUnicodeError) {
+      console.warn(
+        `[Import] Unicode escape sequence error detected on batch of ${batch.length} files. Converting text files to Base64 to ensure 100% database compatibility...`,
+      );
+      // Promote all text files in this batch to base64 binary encoding
+      const safeRows = batch.map((f) => {
+        const cleanPath = sanitizeFilePath(f.path);
+        let content = f.content;
+        let isBinary = f.is_binary;
+        if (!isBinary) {
+          isBinary = true;
+          content = Buffer.from(content, "utf-8").toString("base64");
+        }
+        return {
+          path: cleanPath,
+          content,
+          is_binary: isBinary,
+          size: f.size || content.length,
+          repo_id: repoId,
+          updated_at: new Date().toISOString(),
+        };
+      });
+
+      const { error: safeErr } = await supabase
+        .from("repo_files")
+        .upsert(safeRows, { onConflict: "repo_id,path" });
+
+      if (!safeErr) {
+        console.log(`[Import] Unicode auto-recovery successfully resolved ${batch.length} files.`);
+        return;
+      }
+    }
+
     if (batch.length > 1) {
       console.warn(
         `[Import] Statement error on ${batch.length} files (${error.message}). Splitting into sub-batches...`,
@@ -531,12 +604,12 @@ export const Route = createFileRoute("/api/github/import")({
           // 7. Create initial commit
           const commitChanges = filesToInsert
             .slice(0, 250)
-            .map((f) => ({ path: f.path, type: "added" }));
+            .map((f) => ({ path: sanitizeFilePath(f.path), type: "added" }));
 
           await supabaseAdmin.from("commits").insert({
             repo_id: newRepo.id,
             author_id: userId,
-            message: commitMsg,
+            message: sanitizeCommitMessage(commitMsg, "Initial import from GitHub"),
             changes: commitChanges,
           });
 
@@ -562,7 +635,7 @@ export const Route = createFileRoute("/api/github/import")({
               attempts: 1,
               completed_at: syncResult.success ? new Date().toISOString() : null,
               last_error: syncResult.errors.length
-                ? syncResult.errors.slice(0, 3).join("; ")
+                ? sanitizeUnicode(syncResult.errors.slice(0, 3).join("; "))
                 : null,
             });
 
