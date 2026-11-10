@@ -1,6 +1,6 @@
 import { createFileRoute } from "@tanstack/react-router";
 import { createClient } from "@supabase/supabase-js";
-import { supabaseAdmin } from "@/integrations/supabase/client.server";
+import { supabaseAdmin, createSupabaseFetch } from "@/integrations/supabase/client.server";
 
 // In-memory sliding window rate limiter by key (IP and Account)
 const attempts = new Map<string, { count: number; resetAt: number }>();
@@ -18,7 +18,11 @@ function isRateLimited(key: string, maxAttempts = 10, windowMs = 5 * 60 * 1000):
 
 function getAnonAuthClient() {
   const url = process.env["SUPABASE_URL"] || process.env["VITE_SUPABASE_URL"];
-  const anonKey = process.env["VITE_SUPABASE_ANON_KEY"] || process.env["SUPABASE_ANON_KEY"];
+  const anonKey =
+    process.env["VITE_SUPABASE_PUBLISHABLE_KEY"] ||
+    process.env["SUPABASE_PUBLISHABLE_KEY"] ||
+    process.env["VITE_SUPABASE_ANON_KEY"] ||
+    process.env["SUPABASE_ANON_KEY"];
   if (!url || !anonKey) {
     throw new Error("[Security Fatal] Missing Supabase anon client configuration.");
   }
@@ -27,6 +31,9 @@ function getAnonAuthClient() {
       persistSession: false,
       autoRefreshToken: false,
       detectSessionInUrl: false,
+    },
+    global: {
+      fetch: createSupabaseFetch(anonKey),
     },
   });
 }

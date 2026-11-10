@@ -23,20 +23,94 @@ const safeSchema = {
   ...defaultSchema,
   attributes: {
     ...defaultSchema.attributes,
-    "*": [...(defaultSchema.attributes?.["*"] || []), "className", "align", "style"],
+    "*": [...(defaultSchema.attributes?.["*"] || []), "className", "align", "style", "id"],
     img: [...(defaultSchema.attributes?.img || []), "src", "alt", "width", "height", "align", "loading"],
-    div: [...(defaultSchema.attributes?.div || []), "align", "className"],
-    p: [...(defaultSchema.attributes?.p || []), "align", "className"],
-    h1: [...(defaultSchema.attributes?.h1 || []), "align", "className"],
-    h2: [...(defaultSchema.attributes?.h2 || []), "align", "className"],
-    h3: [...(defaultSchema.attributes?.h3 || []), "align", "className"],
-    span: [...(defaultSchema.attributes?.span || []), "align", "className"],
+    div: [...(defaultSchema.attributes?.div || []), "align", "className", "id"],
+    p: [...(defaultSchema.attributes?.p || []), "align", "className", "id"],
+    h1: [...(defaultSchema.attributes?.h1 || []), "align", "className", "id"],
+    h2: [...(defaultSchema.attributes?.h2 || []), "align", "className", "id"],
+    h3: [...(defaultSchema.attributes?.h3 || []), "align", "className", "id"],
+    h4: [...(defaultSchema.attributes?.h4 || []), "align", "className", "id"],
+    h5: [...(defaultSchema.attributes?.h5 || []), "align", "className", "id"],
+    h6: [...(defaultSchema.attributes?.h6 || []), "align", "className", "id"],
+    span: [...(defaultSchema.attributes?.span || []), "align", "className", "id"],
     table: [...(defaultSchema.attributes?.table || []), "align", "className"],
+    a: [...(defaultSchema.attributes?.a || []), "href", "target", "rel", "id", "name"],
   },
 };
 
+function getNodeText(node: React.ReactNode): string {
+  if (node === null || node === undefined) return "";
+  if (typeof node === "string" || typeof node === "number") return String(node);
+  if (Array.isArray(node)) return node.map(getNodeText).join("");
+  if (React.isValidElement(node)) {
+    return getNodeText((node.props as any)?.children);
+  }
+  return "";
+}
+
+function githubSlugify(text: string): string {
+  return text
+    .toLowerCase()
+    .trim()
+    .replace(/<[^>]+>/g, "")
+    .replace(/[^\w\s-]/g, "")
+    .replace(/\s+/g, "-");
+}
+
 export function MarkdownRenderer({ content, className = "" }: MarkdownRendererProps) {
   if (!content) return null;
+
+  React.useEffect(() => {
+    if (typeof window !== "undefined" && window.location.hash) {
+      const hash = decodeURIComponent(window.location.hash.slice(1));
+      const timer = setTimeout(() => {
+        const el =
+          document.getElementById(hash) ||
+          Array.from(document.querySelectorAll("[id]")).find(
+            (elem) => elem.id.toLowerCase() === hash.toLowerCase(),
+          );
+        if (el) {
+          el.scrollIntoView({ behavior: "smooth", block: "start" });
+        }
+      }, 200);
+      return () => clearTimeout(timer);
+    }
+  }, [content]);
+
+  const renderHeading = (Tag: "h1" | "h2" | "h3" | "h4" | "h5" | "h6", headingClass: string) => {
+    return ({ children, id: explicitId, ...props }: any) => {
+      const rawText = getNodeText(children);
+      const slug = explicitId || githubSlugify(rawText);
+
+      return (
+        <Tag
+          id={slug}
+          className={`group relative scroll-mt-20 ${headingClass}`}
+          {...props}
+        >
+          <span>{children}</span>
+          {slug && (
+            <a
+              href={`#${slug}`}
+              aria-label={`Direct link to ${rawText}`}
+              className="ml-2 inline-flex opacity-0 group-hover:opacity-100 transition-opacity text-muted-foreground hover:text-foreground select-none"
+              onClick={(e) => {
+                e.preventDefault();
+                const el = document.getElementById(slug);
+                if (el) {
+                  el.scrollIntoView({ behavior: "smooth", block: "start" });
+                  window.history.pushState(null, "", `#${slug}`);
+                }
+              }}
+            >
+              #
+            </a>
+          )}
+        </Tag>
+      );
+    };
+  };
 
   return (
     <div
@@ -46,24 +120,12 @@ export function MarkdownRenderer({ content, className = "" }: MarkdownRendererPr
         remarkPlugins={[remarkGfm]}
         rehypePlugins={[rehypeRaw, [rehypeSanitize, safeSchema]]}
         components={{
-          h1: ({ children, ...props }) => (
-            <h1 {...props} className="mt-6 mb-4 text-2xl sm:text-3xl font-semibold tracking-tight border-b border-border pb-2 text-foreground flex items-center group">
-              <span>{children}</span>
-            </h1>
-          ),
-          h2: ({ children, ...props }) => (
-            <h2 {...props} className="mt-6 mb-3 text-xl sm:text-2xl font-semibold tracking-tight border-b border-border/80 pb-1.5 text-foreground">
-              {children}
-            </h2>
-          ),
-          h3: ({ children, ...props }) => (
-            <h3 {...props} className="mt-5 mb-2 text-lg sm:text-xl font-semibold text-foreground tracking-tight">
-              {children}
-            </h3>
-          ),
-          h4: ({ children, ...props }) => (
-            <h4 {...props} className="mt-4 mb-1.5 text-base font-semibold text-foreground">{children}</h4>
-          ),
+          h1: renderHeading("h1", "mt-6 mb-4 text-2xl sm:text-3xl font-semibold tracking-tight border-b border-border pb-2 text-foreground flex items-center"),
+          h2: renderHeading("h2", "mt-6 mb-3 text-xl sm:text-2xl font-semibold tracking-tight border-b border-border/80 pb-1.5 text-foreground flex items-center"),
+          h3: renderHeading("h3", "mt-5 mb-2 text-lg sm:text-xl font-semibold text-foreground tracking-tight flex items-center"),
+          h4: renderHeading("h4", "mt-4 mb-1.5 text-base font-semibold text-foreground flex items-center"),
+          h5: renderHeading("h5", "mt-3 mb-1 text-sm font-semibold text-foreground flex items-center"),
+          h6: renderHeading("h6", "mt-3 mb-1 text-xs font-semibold text-muted-foreground uppercase tracking-wider flex items-center"),
           p: ({ children, ...props }) => (
             <p {...props} className="mb-4 text-sm sm:text-base leading-7 text-foreground/90">{children}</p>
           ),
@@ -171,19 +233,69 @@ export function MarkdownRenderer({ content, className = "" }: MarkdownRendererPr
             );
           },
           hr: () => <hr className="my-6 border-border" />,
-          a: ({ href, children }) => (
-            <a
-              href={href}
-              target="_blank"
-              rel="noreferrer"
-              className="text-blue-600 dark:text-blue-400 font-medium underline underline-offset-2 hover:opacity-80 transition-opacity inline-flex items-center gap-0.5"
-            >
-              <span>{children}</span>
-              {href && !href.startsWith("#") && !href.startsWith("/") && (
-                <ExternalLink className="h-3 w-3 inline-block shrink-0 opacity-70 ml-0.5" />
-              )}
-            </a>
-          ),
+          a: ({ href, children, ...props }) => {
+            const isHashOnly = href?.startsWith("#");
+            const getAnchorSlug = () => {
+              if (!href) return null;
+              if (isHashOnly) return href.slice(1);
+              try {
+                if (typeof window !== "undefined") {
+                  const url = new URL(href, window.location.href);
+                  if (
+                    url.origin === window.location.origin &&
+                    url.pathname === window.location.pathname &&
+                    url.hash
+                  ) {
+                    return url.hash.slice(1);
+                  }
+                }
+              } catch {
+                return null;
+              }
+              return null;
+            };
+
+            const anchorSlug = getAnchorSlug();
+
+            const handleAnchorClick = (e: React.MouseEvent<HTMLAnchorElement>) => {
+              if (anchorSlug) {
+                e.preventDefault();
+                const targetId = decodeURIComponent(anchorSlug);
+                const el =
+                  document.getElementById(targetId) ||
+                  Array.from(document.querySelectorAll("[id]")).find(
+                    (elem) => elem.id.toLowerCase() === targetId.toLowerCase(),
+                  );
+                if (el) {
+                  el.scrollIntoView({ behavior: "smooth", block: "start" });
+                  window.history.pushState(null, "", `#${targetId}`);
+                }
+              }
+            };
+
+            const isExternal =
+              Boolean(href) &&
+              !anchorSlug &&
+              !href?.startsWith("#") &&
+              !href?.startsWith("/") &&
+              (typeof window !== "undefined" ? !href?.startsWith(window.location.origin) : true);
+
+            return (
+              <a
+                href={href}
+                onClick={anchorSlug ? handleAnchorClick : undefined}
+                target={isExternal ? "_blank" : undefined}
+                rel={isExternal ? "noreferrer noopener" : undefined}
+                className="text-blue-600 dark:text-blue-400 font-medium underline underline-offset-2 hover:opacity-80 transition-opacity inline-flex items-center gap-0.5"
+                {...props}
+              >
+                <span>{children}</span>
+                {isExternal && (
+                  <ExternalLink className="h-3 w-3 inline-block shrink-0 opacity-70 ml-0.5" />
+                )}
+              </a>
+            );
+          },
           img: ({ src, alt, ...props }) => (
             <span className="inline-block my-2">
               <img

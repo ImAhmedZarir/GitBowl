@@ -8,15 +8,23 @@ export const Route = createFileRoute("/api/auth/google-sync")({
     handlers: {
       POST: async ({ request }) => {
         try {
+          const body = await request.json().catch(() => ({}));
           const authHeader = request.headers.get("authorization");
-          if (!authHeader?.toLowerCase().startsWith("bearer ")) {
+          let idToken = "";
+
+          if (authHeader?.toLowerCase().startsWith("bearer ")) {
+            idToken = authHeader.slice(7).trim();
+          } else if (body.idToken && typeof body.idToken === "string") {
+            idToken = body.idToken.trim();
+          }
+
+          if (!idToken) {
             return new Response(
               JSON.stringify({ error: "Missing Firebase authentication token" }),
               { status: 401, headers: { "Content-Type": "application/json" } },
             );
           }
 
-          const idToken = authHeader.slice(7).trim();
           const claims = await verifyFirebaseIdToken(idToken);
 
           if (!claims || !claims.email) {
@@ -27,81 +35,68 @@ export const Route = createFileRoute("/api/auth/google-sync")({
           }
 
           const email = claims.email.trim().toLowerCase();
-          const displayName = (claims.name || "").trim();
-          const photoURL = claims.picture || null;
+          const displayName = (claims.name || body.displayName || "").trim();
+          const photoURL = claims.picture || body.photoURL || null;
 
-          // Direct user lookup via SQL or getUserByEmail
+          let isNewUser = false;
           let userId: string | null = null;
-          const { data: userByEmail } = await supabaseAdmin
-            .from("profiles")
-            .select("id, username, display_name")
-            .eq("id", (
-              await supabaseAdmin.rpc("get_user_id_by_email" as any, { user_email: email }).catch(() => ({})) as any
-            )?.data || "none")
-            .maybeSingle();
+          let existingProfile: { username: string; display_name: string | null } | null = null;
 
-          // Query auth.users directly via admin client if rpc not available
-          if (!userByEmail) {
-            // Find existing user in profiles by username or check admin getUserByEmail
-            const { data: userData } = await (supabaseAdmin.auth.admin as any).getUserByEmail?.(email).catch(() => ({ data: null })) || { data: null };
-            if (userData?.user) {
-              userId = userData.user.id;
-            }
-          } else {
-            userId = userByEmail.id;
-          }
+          // Check if profile exists by email resolution or auth query
+          const derivedUsername =
+            email
+              .split("@")[0]
+              ?.toLowerCase()
+              .replace(/[^a-z0-9-]/g, "-")
+              .slice(0, 30) || "user-" + Math.random().toString(36).substring(2, 8);
 
-          // If user still not found, check with bounded single query
-          if (!userId) {
-            const { data: listRes } = await supabaseAdmin.auth.admin.listUsers({
-              page: 1,
-              perPage: 1,
-            });
-            // Try creating user directly; if email exists, Supabase createUser will return existing/duplicate error
-            const derivedUsername =
-              email
-                .split("@")[0]
-                ?.toLowerCase()
-                .replace(/[^a-z0-9-]/g, "-")
-                .slice(0, 30) || "user-" + Math.random().toString(36).substring(2, 8);
+          // 1. Try to create user directly in Supabase auth
+          const { data: newUser, error: createError } = await supabaseAdmin.auth.admin.createUser({
+            email,
+            email_confirm: true,
+            user_metadata: {
+              full_name: displayName,
+              name: displayName,
+              avatar_url: photoURL,
+              username: derivedUsername,
+            },
+          });
 
-            const { data: newUser, error: createError } = await supabaseAdmin.auth.admin.createUser(
+          if (newUser?.user) {
+            userId = newUser.user.id;
+            isNewUser = true;
+
+            await supabaseAdmin.from("profiles").upsert(
               {
-                email,
-                email_confirm: true,
-                user_metadata: {
-                  full_name: displayName,
-                  name: displayName,
-                  avatar_url: photoURL,
-                  username: derivedUsername,
-                },
+                id: userId,
+                username: derivedUsername,
+                display_name: displayName || derivedUsername,
+                bio: null,
+                created_at: new Date().toISOString(),
               },
+              { onConflict: "id" },
             );
+          } else if (
+            createError?.message?.toLowerCase().includes("already registered") ||
+            (createError as any)?.status === 422
+          ) {
+            // User already registered in Supabase auth; find their profile
+            // Check profiles
+            const { data: prof } = await supabaseAdmin
+              .from("profiles")
+              .select("id, username, display_name")
+              .ilike("username", derivedUsername)
+              .maybeSingle();
 
-            if (createError) {
-              // If user already registered, generateLink directly
-              if (createError.message?.toLowerCase().includes("already registered") || (createError as any).status === 422) {
-                // Link will be generated below
-              } else {
-                return new Response(JSON.stringify({ error: createError.message }), {
-                  status: 500,
-                  headers: { "Content-Type": "application/json" },
-                });
-              }
-            } else if (newUser?.user) {
-              userId = newUser.user.id;
-              // Ensure profile exists
-              await supabaseAdmin.from("profiles").upsert(
-                {
-                  id: userId,
-                  username: derivedUsername,
-                  display_name: displayName || derivedUsername,
-                  bio: null,
-                  created_at: new Date().toISOString(),
-                },
-                { onConflict: "id" },
-              );
+            if (prof) {
+              userId = prof.id;
+              existingProfile = prof;
             }
+          } else if (createError) {
+            return new Response(JSON.stringify({ error: createError.message }), {
+              status: 500,
+              headers: { "Content-Type": "application/json" },
+            });
           }
 
           // 2. Generate a magiclink token so client can verifyOtp and establish Supabase session
@@ -117,10 +112,18 @@ export const Route = createFileRoute("/api/auth/google-sync")({
             );
           }
 
+          if (linkData.user?.id) {
+            userId = linkData.user.id;
+          }
+
           return new Response(
             JSON.stringify({
               hashed_token: linkData.properties.hashed_token,
               email,
+              userId: userId || linkData.user?.id || "",
+              isNewUser,
+              suggestedUsername: existingProfile?.username || derivedUsername,
+              displayName: existingProfile?.display_name || displayName || derivedUsername,
             }),
             {
               status: 200,

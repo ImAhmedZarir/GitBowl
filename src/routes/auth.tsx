@@ -250,6 +250,21 @@ function AuthPage() {
     }
 
     try {
+      // 1. If identifier is an email, attempt direct Supabase sign-in first
+      if (loginId.includes("@")) {
+        const { data: directData, error: directError } = await supabase.auth.signInWithPassword({
+          email: loginId,
+          password,
+        });
+
+        if (!directError && directData?.session) {
+          toast.success("Welcome back to GitBowl!");
+          navigate({ to: search.redirect || "/" });
+          return;
+        }
+      }
+
+      // 2. Otherwise (or as server-brokered fallback for username lookup), call /api/auth/login
       const res = await fetch("/api/auth/login", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -283,6 +298,7 @@ function AuthPage() {
     try {
       const res = await signInWithPopup(firebaseAuth, googleProvider);
       const fbUser = res.user;
+      const idToken = await fbUser.getIdToken();
 
       if (!fbUser.email) {
         throw new Error("Google account did not provide an email address.");
@@ -291,8 +307,12 @@ function AuthPage() {
       // Sync user with backend to establish Supabase session
       const syncRes = await fetch("/api/auth/google-sync", {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: {
+          "Content-Type": "application/json",
+          "Authorization": `Bearer ${idToken}`,
+        },
         body: JSON.stringify({
+          idToken,
           email: fbUser.email,
           displayName: fbUser.displayName || fbUser.email.split("@")[0],
           photoURL: fbUser.photoURL,
@@ -350,6 +370,7 @@ function AuthPage() {
       const fbUser = res.user;
       const credential = GithubAuthProvider.credentialFromResult(res);
       const ghAccessToken = credential?.accessToken || null;
+      const idToken = await fbUser.getIdToken();
 
       if (ghAccessToken) {
         localStorage.setItem("gitbowl_github_token", ghAccessToken);
@@ -357,8 +378,12 @@ function AuthPage() {
 
       const syncRes = await fetch("/api/auth/github-sync", {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: {
+          "Content-Type": "application/json",
+          "Authorization": `Bearer ${idToken}`,
+        },
         body: JSON.stringify({
+          idToken,
           email: fbUser.email,
           displayName: fbUser.displayName || fbUser.email?.split("@")[0] || "developer",
           photoURL: fbUser.photoURL,
@@ -427,10 +452,15 @@ function AuthPage() {
           }
 
           const fbUser = googleRes.user;
+          const idToken = await fbUser.getIdToken();
           const syncRes = await fetch("/api/auth/github-sync", {
             method: "POST",
-            headers: { "Content-Type": "application/json" },
+            headers: {
+              "Content-Type": "application/json",
+              "Authorization": `Bearer ${idToken}`,
+            },
             body: JSON.stringify({
+              idToken,
               email: fbUser.email,
               displayName: fbUser.displayName || fbUser.email?.split("@")[0] || "developer",
               photoURL: fbUser.photoURL,

@@ -97,6 +97,7 @@ import { QuickSetupView } from "@/components/repo/QuickSetupView";
 import { ReleasesTab } from "@/components/repo/ReleasesTab";
 import { InsightsTab } from "@/components/repo/InsightsTab";
 import { WatchDropdown } from "@/components/repo/WatchDropdown";
+import { RepoSidebar } from "@/components/repo/RepoSidebar";
 
 type Tab = "code" | "issues" | "pulls" | "commits" | "releases" | "insights" | "settings";
 
@@ -576,6 +577,7 @@ function RepoPage() {
             loadingFiles={loadingFiles}
             isOwner={canWrite}
             authorId={profile?.id}
+            onSelectTab={switchTab}
             onSaved={() => {
               qc.invalidateQueries({ queryKey: ["repo-files-meta", repo.id] });
               qc.invalidateQueries({ queryKey: ["file-content", repo.id] });
@@ -618,9 +620,18 @@ interface CodeTabProps {
   isOwner: boolean;
   authorId: string | undefined;
   onSaved: () => void;
+  onSelectTab: (tab: Tab) => void;
 }
 
-function CodeTab({ repo, filesMeta, loadingFiles, isOwner, authorId, onSaved }: CodeTabProps) {
+function CodeTab({
+  repo,
+  filesMeta,
+  loadingFiles,
+  isOwner,
+  authorId,
+  onSaved,
+  onSelectTab,
+}: CodeTabProps) {
   const qc = useQueryClient();
   const [activeBranch, setActiveBranch] = useState(repo.default_branch || "main");
   const [activePath, setActivePath] = useState<string | null>(null);
@@ -921,7 +932,10 @@ function CodeTab({ repo, filesMeta, loadingFiles, isOwner, authorId, onSaved }: 
         className="hidden"
       />
 
-      {/* TOP WORKSPACE CONTROLS (GitHub parity) */}
+      <div className="grid grid-cols-1 lg:grid-cols-12 gap-8 items-start">
+        {/* MAIN WORKSPACE COLUMN (9 cols on desktop) */}
+        <div className="lg:col-span-9 min-w-0 space-y-4">
+          {/* TOP WORKSPACE CONTROLS (GitHub parity) */}
       <div className="flex flex-wrap items-center justify-between gap-3">
         <div className="flex items-center gap-2">
           {/* Mobile Files toggle button */}
@@ -997,9 +1011,6 @@ function CodeTab({ repo, filesMeta, loadingFiles, isOwner, authorId, onSaved }: 
           />
         </div>
       </div>
-
-      {/* LANGUAGE BREAKDOWN BAR */}
-      {filesMeta.length > 0 && <LanguageBar filesMeta={filesMeta} />}
 
       {/* GITHUB-PARITY LATEST COMMIT BAR */}
       {latestCommit && (
@@ -1280,6 +1291,18 @@ function CodeTab({ repo, filesMeta, loadingFiles, isOwner, authorId, onSaved }: 
         </div>
       </div>
       )}
+        </div>
+
+        {/* RIGHT SIDEBAR (3 cols on desktop) - About, Releases, Packages, Languages */}
+        <aside className="lg:col-span-3 min-w-0 pt-1">
+          <RepoSidebar
+            repo={repo}
+            filesMeta={filesMeta}
+            isOwner={isOwner}
+            onSelectTab={onSelectTab}
+          />
+        </aside>
+      </div>
 
       {/* NEW FILE DIALOG */}
       <Dialog open={newFileOpen} onOpenChange={setNewFileOpen}>
