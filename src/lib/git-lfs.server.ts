@@ -131,7 +131,16 @@ export async function handleLfsUpload(
   oid: string,
   bodyBuffer: Buffer,
 ): Promise<{ success: boolean; error?: string }> {
-  const cleanOid = oid.toLowerCase();
+  const cleanOid = oid.toLowerCase().trim();
+  if (!/^[0-9a-f]{64}$/.test(cleanOid)) {
+    return { success: false, error: "Invalid OID format (must be 64-character lowercase SHA-256)" };
+  }
+
+  // Enforce max 100MB limit per LFS object
+  if (bodyBuffer.length > 100 * 1024 * 1024) {
+    return { success: false, error: "LFS object exceeds maximum size limit of 100MB" };
+  }
+
   const calculatedSha = createHash("sha256").update(bodyBuffer).digest("hex");
 
   if (calculatedSha !== cleanOid) {
@@ -179,11 +188,24 @@ export async function handleLfsUpload(
 
 /**
  * Handles downloading an LFS object: GET /info/lfs/objects/:oid
+ * Scoped strictly to repository to prevent unauthorized object enumeration.
  */
-export async function handleLfsDownload(oid: string): Promise<Buffer | null> {
+export async function handleLfsDownload(repoId: string, oid: string): Promise<Buffer | null> {
   const supabase = getSupabaseAdmin();
-  const cleanOid = oid.toLowerCase();
+  const cleanOid = oid.toLowerCase().trim();
+  if (!/^[0-9a-f]{64}$/.test(cleanOid)) return null;
 
+  // 1. Verify object belongs to this repository
+  const { data: objLink } = await supabase
+    .from("lfs_objects" as any)
+    .select("oid")
+    .eq("repo_id", repoId)
+    .eq("oid", cleanOid)
+    .maybeSingle();
+
+  if (!objLink) return null;
+
+  // 2. Fetch object payload
   const { data, error } = await supabase
     .from("lfs_data" as any)
     .select("data")

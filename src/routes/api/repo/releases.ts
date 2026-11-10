@@ -81,6 +81,43 @@ export const Route = createFileRoute("/api/repo/releases")({
             });
           }
 
+          // Verify user permission on this repository
+          const { data: repo, error: repoErr } = await supabase
+            .from("repositories")
+            .select("id, owner_id, head_sha")
+            .eq("id", repoId)
+            .single();
+
+          if (repoErr || !repo) {
+            return new Response(JSON.stringify({ error: "Repository not found" }), {
+              status: 404,
+              headers: { "Content-Type": "application/json" },
+            });
+          }
+
+          if (repo.owner_id !== user.id) {
+            const { data: collab } = await supabase
+              .from("collaborators" as any)
+              .select("permission")
+              .eq("repo_id", repoId)
+              .eq("user_id", user.id)
+              .maybeSingle();
+
+            const canWrite =
+              collab && (collab.permission === "admin" || collab.permission === "write");
+            if (!canWrite) {
+              return new Response(
+                JSON.stringify({
+                  error: "You do not have write permissions to create a release in this repository",
+                }),
+                {
+                  status: 403,
+                  headers: { "Content-Type": "application/json" },
+                },
+              );
+            }
+          }
+
           const cleanTag = tagName.trim().replace(/^refs\/tags\//, "");
 
           // 1. If body is empty, auto-generate notes from recent commits
@@ -121,12 +158,6 @@ export const Route = createFileRoute("/api/repo/releases")({
           if (insertError) throw insertError;
 
           // 3. Upsert tag ref in refs table
-          const { data: repo } = await supabase
-            .from("repositories")
-            .select("head_sha")
-            .eq("id", repoId)
-            .single();
-
           await supabase.from("refs" as any).upsert(
             {
               repo_id: repoId,
@@ -154,6 +185,82 @@ export const Route = createFileRoute("/api/repo/releases")({
         } catch (err: any) {
           return new Response(
             JSON.stringify({ error: err.message || "Failed to create release" }),
+            {
+              status: 500,
+              headers: { "Content-Type": "application/json" },
+            },
+          );
+        }
+      },
+
+      DELETE: async ({ request }) => {
+        try {
+          const authHeader = request.headers.get("authorization");
+          if (!authHeader) {
+            return new Response(JSON.stringify({ error: "Authentication required" }), {
+              status: 401,
+              headers: { "Content-Type": "application/json" },
+            });
+          }
+
+          const supabase = getSupabaseAdmin();
+          const token = authHeader.replace(/^Bearer\s+/i, "").trim();
+          const { data: userData, error: authError } = await supabase.auth.getUser(token);
+          if (authError || !userData?.user) {
+            return new Response(JSON.stringify({ error: "Invalid token" }), {
+              status: 401,
+              headers: { "Content-Type": "application/json" },
+            });
+          }
+
+          const user = userData.user;
+          const url = new URL(request.url);
+          const releaseId = url.searchParams.get("id");
+          if (!releaseId) {
+            return new Response(JSON.stringify({ error: "Missing release id" }), {
+              status: 400,
+              headers: { "Content-Type": "application/json" },
+            });
+          }
+
+          // Fetch release & repo
+          const { data: rel, error: relErr } = await supabase
+            .from("releases" as any)
+            .select("id, repo_id, repositories(owner_id)")
+            .eq("id", releaseId)
+            .single();
+
+          if (relErr || !rel) {
+            return new Response(JSON.stringify({ error: "Release not found" }), {
+              status: 404,
+              headers: { "Content-Type": "application/json" },
+            });
+          }
+
+          const repoOwnerId = (rel as any).repositories?.owner_id;
+          if (repoOwnerId !== user.id) {
+            return new Response(
+              JSON.stringify({ error: "Only the repository owner can delete releases" }),
+              {
+                status: 403,
+                headers: { "Content-Type": "application/json" },
+              },
+            );
+          }
+
+          const { error: delErr } = await supabase
+            .from("releases" as any)
+            .delete()
+            .eq("id", releaseId);
+          if (delErr) throw delErr;
+
+          return new Response(JSON.stringify({ success: true, deletedId: releaseId }), {
+            status: 200,
+            headers: { "Content-Type": "application/json" },
+          });
+        } catch (err: any) {
+          return new Response(
+            JSON.stringify({ error: err.message || "Failed to delete release" }),
             {
               status: 500,
               headers: { "Content-Type": "application/json" },

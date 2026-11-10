@@ -133,8 +133,13 @@ function parseTree(body: Buffer) {
 /* ---------- auth & repo lookup ---------- */
 
 export function getAdminAndPublic() {
-  const url = process.env["SUPABASE_URL"]!;
-  const pub = createClient<Database>(url, process.env["SUPABASE_PUBLISHABLE_KEY"]!, {
+  const url = process.env["SUPABASE_URL"] || process.env["VITE_SUPABASE_URL"] || "";
+  const pubKey =
+    process.env["SUPABASE_PUBLISHABLE_KEY"] ||
+    process.env["VITE_SUPABASE_ANON_KEY"] ||
+    process.env["SUPABASE_ANON_KEY"] ||
+    "";
+  const pub = createClient<Database>(url, pubKey, {
     auth: { storage: undefined, persistSession: false, autoRefreshToken: false },
   });
   return pub;
@@ -192,6 +197,8 @@ export async function authenticate(request: Request, admin: Admin): Promise<stri
 }
 
 export async function findRepo(admin: Admin, owner: string, name: string) {
+  const cleanName = name.replace(/\.git$/i, "");
+
   // 1. Try finding by user profile
   const { data: p } = await admin
     .from("profiles")
@@ -204,7 +211,7 @@ export async function findRepo(admin: Admin, owner: string, name: string) {
       .from("repositories")
       .select("*")
       .eq("owner_id", p.id)
-      .eq("name", name)
+      .ilike("name", cleanName)
       .maybeSingle();
     if (repo) return { repo, owner: p };
   }
@@ -221,7 +228,7 @@ export async function findRepo(admin: Admin, owner: string, name: string) {
       .from("repositories" as any)
       .select("*")
       .eq("org_id", (org as any).id)
-      .eq("name", name)
+      .ilike("name", cleanName)
       .maybeSingle();
     if (repo) {
       return {
@@ -658,7 +665,26 @@ export async function receivePack(admin: Admin, repo: Repo, userId: string, requ
         continue;
       }
 
-      const head = parseCommit((await get(c.newSha)).body);
+      // Concurrency and branch protection check for default branch
+      if (c.oldSha !== ZERO && c.ref === branchRef && repo.head_sha && repo.head_sha !== c.oldSha) {
+        report.push(pkt(`ng ${c.ref} [remote rejected] (protected branch force push rejected)\n`));
+        continue;
+      }
+
+      const targetObj = await get(c.newSha);
+      let commitBody = targetObj.body;
+      if (targetObj.type === "tag") {
+        // Support annotated tag objects
+        const tagText = targetObj.body.toString("utf8");
+        const objMatch = tagText.match(/^object ([0-9a-f]{40})/m);
+        if (objMatch && objMatch[1]) {
+          const underlyingObj = await get(objMatch[1]);
+          if (underlyingObj.type === "commit") {
+            commitBody = underlyingObj.body;
+          }
+        }
+      }
+      const head = parseCommit(commitBody);
       const files: { path: string; content: string; is_binary: boolean; size: number }[] = [];
       const walk = async (treeSha: string, prefix: string) => {
         for (const e of parseTree((await get(treeSha)).body)) {
@@ -718,7 +744,14 @@ export async function receivePack(admin: Admin, repo: Repo, userId: string, requ
         );
       }
 
-      if (c.ref === branchRef) {
+      const isFirstPush = !repo.head_sha;
+      const isDefaultBranch = c.ref === branchRef;
+      const shouldUpdateFiles = isFirstPush || isDefaultBranch;
+      const pushedBranchName = c.ref.startsWith("refs/heads/")
+        ? c.ref.slice(11)
+        : (repo.default_branch || "main");
+
+      if (shouldUpdateFiles) {
         const old = await loadFiles(admin, repo.id);
         const oldMap = new Map(old.map((f) => [f.path, f.content]));
         const changes = [
@@ -744,29 +777,10 @@ export async function receivePack(admin: Admin, repo: Repo, userId: string, requ
               const s = sanitizeFileRecord(f);
               return { ...s, repo_id: repo.id };
             });
-            let { error } = await admin
+            const { error } = await admin
               .from("repo_files")
               .upsert(batchRows, { onConflict: "repo_id,path" });
-            if (error) {
-              const errText = (error.message || "").toLowerCase();
-              if (
-                errText.includes("unicode escape") ||
-                errText.includes("22p05") ||
-                errText.includes("invalid byte sequence")
-              ) {
-                const safeRows = batchRows.map((r) => ({
-                  ...r,
-                  is_binary: true,
-                  content: r.is_binary ? r.content : Buffer.from(r.content || "", "utf8").toString("base64"),
-                }));
-                const retry = await admin
-                  .from("repo_files")
-                  .upsert(safeRows, { onConflict: "repo_id,path" });
-                if (retry.error) throw retry.error;
-              } else {
-                throw error;
-              }
-            }
+            if (error) throw error;
           }
 
           // Mirror committed files to central storage tier
@@ -805,9 +819,17 @@ export async function receivePack(admin: Admin, repo: Repo, userId: string, requ
           created_at: new Date(now - (arr.length - 1 - i) * 1000).toISOString(),
         }));
         if (rows.length) await admin.from("commits").insert(rows);
+        
+        const repoUpdates: Record<string, any> = {
+          head_sha: c.newSha,
+          updated_at: new Date().toISOString(),
+        };
+        if (isFirstPush) {
+          repoUpdates["default_branch"] = pushedBranchName;
+        }
         await admin
           .from("repositories")
-          .update({ head_sha: c.newSha, updated_at: new Date().toISOString() })
+          .update(repoUpdates)
           .eq("id", repo.id);
       } else {
         const now = Date.now();

@@ -476,112 +476,112 @@ function LandingView() {
   });
 
   return (
-    <div>
+    <div className="bg-background text-foreground transition-colors">
       {/* HERO SECTION */}
-      <section className="relative overflow-hidden border-b border-border/80 hero-glow py-16 sm:py-24">
-        <div className="absolute inset-0 grid-bg opacity-30 pointer-events-none" />
-        <div className="mx-auto max-w-7xl px-4 relative z-10">
-          <div className="grid grid-cols-1 items-center gap-12 lg:grid-cols-12">
-            {/* Left Column: Headline & CTAs */}
-            <div className="lg:col-span-7 space-y-6 text-center lg:text-left">
-              <div className="inline-flex items-center gap-2 rounded-full border border-primary/30 bg-primary/10 px-3 py-1 text-xs font-semibold text-primary">
-                <Sparkles className="h-3.5 w-3.5" />
-                <span>Next-generation Git hosting</span>
-              </div>
+      <section className="relative overflow-hidden border-b border-border bg-background py-16 sm:py-24">
+        <div className="absolute inset-0 bg-[radial-gradient(ellipse_80%_80%_at_50%_-20%,rgba(120,119,198,0.08),transparent)] pointer-events-none" />
+        <div className="mx-auto max-w-6xl px-4 relative z-10 flex flex-col items-center text-center space-y-8">
+          {/* Badge */}
+          <div className="inline-flex items-center gap-2 rounded-full border border-border bg-muted/60 px-3.5 py-1 text-xs font-medium text-muted-foreground">
+            <span className="h-1.5 w-1.5 rounded-full bg-emerald-500 animate-pulse" />
+            <span>High-performance Git Smart-HTTP infrastructure</span>
+          </div>
 
-              <h1 className="text-4xl font-extrabold tracking-tight text-foreground sm:text-6xl sm:leading-tight text-balance">
-                Your code,{" "}
-                <span className="bg-gradient-to-r from-primary to-success bg-clip-text text-transparent">
-                  in a bowl.
-                </span>
-              </h1>
+          {/* Heading */}
+          <div className="space-y-4 max-w-3xl">
+            <h1 className="text-4xl sm:text-6xl lg:text-7xl font-bold tracking-tight text-foreground leading-tight">
+              Git repositories. Built for pure velocity.
+            </h1>
+            <p className="max-w-2xl mx-auto text-base sm:text-lg text-muted-foreground leading-relaxed">
+              Standard Git Smart-HTTP protocol, in-browser Monaco editing, zip project imports,
+              and zero bloated configuration.
+            </p>
+          </div>
 
-              <p className="max-w-xl mx-auto lg:mx-0 text-base text-muted-foreground sm:text-lg sm:leading-relaxed text-pretty">
-                A fast, modern GitHub alternative with in-browser Monaco editing, zip project
-                imports, real Git over HTTPS, and zero enterprise fluff.
-              </p>
+          {/* Center-aligned CTAs */}
+          <div className="flex flex-col sm:flex-row items-center justify-center gap-4 w-full max-w-md pt-2">
+            <Button
+              asChild
+              size="lg"
+              className="w-full sm:w-auto px-8 py-3 bg-foreground text-background hover:opacity-90 font-semibold transition-opacity shadow-xs"
+            >
+              <Link to="/auth">
+                Sign up free <ArrowRight className="ml-2 h-4 w-4" />
+              </Link>
+            </Button>
+            <Button
+              asChild
+              variant="outline"
+              size="lg"
+              className="w-full sm:w-auto px-8 py-3 border border-border bg-card/70 text-foreground hover:bg-accent font-medium transition-colors"
+            >
+              <Link to="/explore">
+                <Compass className="mr-2 h-4 w-4 text-muted-foreground" />
+                Explore repositories
+              </Link>
+            </Button>
+          </div>
 
-              <div className="flex flex-wrap items-center justify-center lg:justify-start gap-3 pt-2">
-                <Button asChild size="lg" className="h-11 px-6 text-sm font-semibold shadow-md">
-                  <Link to="/auth">
-                    Sign up free <ArrowRight className="ml-2 h-4 w-4" />
-                  </Link>
-                </Button>
-                <Button
-                  asChild
-                  variant="outline"
-                  size="lg"
-                  className="h-11 px-6 text-sm font-medium"
-                >
-                  <Link to="/explore">
-                    <Compass className="mr-2 h-4 w-4 text-muted-foreground" />
-                    Explore repositories
-                  </Link>
-                </Button>
-              </div>
+          {/* Trust bullets */}
+          <div className="pt-2 flex flex-wrap items-center justify-center gap-6 text-xs text-muted-foreground">
+            <span className="flex items-center gap-2">
+              <CheckCircle2 className="h-4 w-4 text-emerald-500" /> Smart-HTTP Git protocol
+            </span>
+            <span className="flex items-center gap-2">
+              <CheckCircle2 className="h-4 w-4 text-emerald-500" /> Instant zip file unzipping
+            </span>
+            <span className="flex items-center gap-2">
+              <CheckCircle2 className="h-4 w-4 text-emerald-500" /> In-browser Monaco editor
+            </span>
+          </div>
 
-              {/* Trust bullets */}
-              <div className="pt-4 flex flex-wrap items-center justify-center lg:justify-start gap-5 text-xs text-muted-foreground">
-                <span className="flex items-center gap-1.5">
-                  <CheckCircle2 className="h-4 w-4 text-success" /> Real Git HTTPS protocol
-                </span>
-                <span className="flex items-center gap-1.5">
-                  <CheckCircle2 className="h-4 w-4 text-success" /> Instant zip file unzipping
-                </span>
-                <span className="flex items-center gap-1.5">
-                  <CheckCircle2 className="h-4 w-4 text-success" /> VS Code in your browser
-                </span>
-              </div>
-            </div>
-
-            {/* Right Column: Animated Typewriter Terminal */}
-            <div className="lg:col-span-5">
-              <div className="overflow-hidden rounded-xl border border-border/80 bg-card/95 shadow-2xl backdrop-blur">
-                {/* Terminal Header */}
-                <div className="flex h-9 items-center justify-between border-b border-border/80 bg-muted/60 px-3">
-                  <div className="flex items-center gap-1.5">
-                    <span className="h-3 w-3 rounded-full bg-destructive/80" />
-                    <span className="h-3 w-3 rounded-full bg-warning/80" />
-                    <span className="h-3 w-3 rounded-full bg-success/80" />
-                  </div>
-                  <span className="font-mono text-[11px] text-muted-foreground">
-                    bash &mdash; gitbowl
-                  </span>
-                  <div className="w-10" />
+          {/* Terminal Component */}
+          <div className="w-full max-w-3xl pt-6">
+            <div className="overflow-hidden rounded-xl border border-border bg-[#0d1117] shadow-2xl text-left">
+              {/* Terminal Header */}
+              <div className="flex h-9 items-center justify-between border-b border-white/[0.08] bg-[#161b22] px-4">
+                <div className="flex items-center gap-2">
+                  <span className="h-2.5 w-2.5 rounded-full bg-red-500/80" />
+                  <span className="h-2.5 w-2.5 rounded-full bg-amber-500/80" />
+                  <span className="h-2.5 w-2.5 rounded-full bg-emerald-500/80" />
                 </div>
+                <span className="font-mono text-[11px] text-zinc-400">
+                  terminal &mdash; gitbowl
+                </span>
+                <div className="w-10" />
+              </div>
 
-                {/* Terminal Body */}
-                <div className="p-4 font-mono text-xs text-foreground/90 space-y-2 h-[220px]">
-                  <p className="text-muted-foreground">
-                    <span className="text-success">$</span> git clone https://gitbowl.zone.id/
-                    {profile?.username || "developer"}/app.git
+              {/* Terminal Body */}
+              <div className="p-5 font-mono text-xs text-zinc-200 space-y-2 h-[210px] overflow-hidden">
+                <p className="text-zinc-400">
+                  <span className="text-emerald-400">$</span> git clone https://gitbowl.zone.id/
+                  {profile?.username || "developer"}/app.git
+                </p>
+                {terminalStep >= 1 && (
+                  <p className="text-zinc-400">
+                    Cloning into &apos;app&apos;... <span className="text-emerald-400">done.</span>
                   </p>
-                  {terminalStep >= 1 && (
-                    <p className="text-muted-foreground">
-                      Cloning into &apos;app&apos;... <span className="text-success">done.</span>
-                    </p>
-                  )}
-                  {terminalStep >= 2 && (
-                    <p className="text-muted-foreground">
-                      <span className="text-success">$</span> cd app && code .
-                    </p>
-                  )}
-                  {terminalStep >= 3 && (
-                    <p className="text-muted-foreground">
-                      <span className="text-success">$</span> git commit -am &quot;ship with
-                      gitbowl&quot;
-                    </p>
-                  )}
-                  {terminalStep >= 4 && (
-                    <p className="text-muted-foreground">
-                      <span className="text-success">$</span> git push origin main
-                      <br />
-                      <span className="text-primary">&rarr;</span> Remote: Changes unpacked into
-                      bowl.
-                    </p>
-                  )}
-                  <span className="inline-block h-4 w-2 animate-pulse bg-primary align-middle" />
-                </div>
+                )}
+                {terminalStep >= 2 && (
+                  <p className="text-zinc-400">
+                    <span className="text-emerald-400">$</span> cd app && code .
+                  </p>
+                )}
+                {terminalStep >= 3 && (
+                  <p className="text-zinc-400">
+                    <span className="text-emerald-400">$</span> git commit -am &quot;ship with
+                    gitbowl&quot;
+                  </p>
+                )}
+                {terminalStep >= 4 && (
+                  <p className="text-zinc-400">
+                    <span className="text-emerald-400">$</span> git push origin main
+                    <br />
+                    <span className="text-white font-semibold">&rarr;</span> Remote: Changes unpacked
+                    into repository.
+                  </p>
+                )}
+                <span className="inline-block h-4 w-2 animate-pulse bg-white align-middle" />
               </div>
             </div>
           </div>
@@ -589,26 +589,30 @@ function LandingView() {
       </section>
 
       {/* LIVE STATS STRIP */}
-      <section className="border-b border-border bg-card/50 py-6">
+      <section className="border-b border-border bg-card/60 py-8">
         <div className="mx-auto max-w-7xl px-4">
           <div className="grid grid-cols-3 divide-x divide-border text-center">
             <div className="px-4">
-              <div className="text-2xl font-bold tracking-tight text-foreground sm:text-3xl">
+              <div className="text-3xl sm:text-4xl font-bold font-mono tracking-tight text-foreground">
                 {stats?.repos ?? 0}+
               </div>
-              <div className="text-xs font-medium text-muted-foreground mt-0.5">Repositories</div>
+              <div className="text-xs font-mono uppercase tracking-wider text-muted-foreground mt-1">
+                Repositories
+              </div>
             </div>
             <div className="px-4">
-              <div className="text-2xl font-bold tracking-tight text-foreground sm:text-3xl">
+              <div className="text-3xl sm:text-4xl font-bold font-mono tracking-tight text-foreground">
                 {stats?.users ?? 0}+
               </div>
-              <div className="text-xs font-medium text-muted-foreground mt-0.5">Developers</div>
+              <div className="text-xs font-mono uppercase tracking-wider text-muted-foreground mt-1">
+                Developers
+              </div>
             </div>
             <div className="px-4">
-              <div className="text-2xl font-bold tracking-tight text-foreground sm:text-3xl">
+              <div className="text-3xl sm:text-4xl font-bold font-mono tracking-tight text-foreground">
                 {stats?.commits ?? 0}+
               </div>
-              <div className="text-xs font-medium text-muted-foreground mt-0.5">
+              <div className="text-xs font-mono uppercase tracking-wider text-muted-foreground mt-1">
                 Commits Recorded
               </div>
             </div>
@@ -617,10 +621,10 @@ function LandingView() {
       </section>
 
       {/* EVERYTHING YOU NEED (6 Feature Cards) */}
-      <section className="py-20">
+      <section className="py-20 bg-background">
         <div className="mx-auto max-w-7xl px-4">
           <div className="text-center max-w-2xl mx-auto space-y-3">
-            <h2 className="text-2xl font-bold tracking-tight text-foreground sm:text-3xl">
+            <h2 className="text-2xl sm:text-3xl font-semibold tracking-tight text-foreground">
               Everything you need to ship
             </h2>
             <p className="text-sm text-muted-foreground">
@@ -634,12 +638,12 @@ function LandingView() {
               {
                 icon: TerminalIcon,
                 title: "Real Git over HTTPS",
-                body: "Clone, pull, and push directly from your command line terminal or favorite IDE using token credentials.",
+                body: "Clone, pull, and push directly from your command line terminal or IDE with Personal Access Tokens.",
               },
               {
                 icon: Code2,
                 title: "In-Browser Web Editor",
-                body: "Monaco-powered VS Code environment right inside your browser with syntax highlighting and file tree.",
+                body: "Monaco-powered VS Code environment inside your browser with syntax highlighting and file tree.",
               },
               {
                 icon: FileArchive,
@@ -654,19 +658,19 @@ function LandingView() {
               {
                 icon: Search,
                 title: "Global ⌘K Command Palette",
-                body: "Lightning fast command palette to instantly jump to any repository, issue, or developer profile.",
+                body: "Fast command palette to instantly search and jump to any repository, issue, or developer profile.",
               },
               {
                 icon: ShieldCheck,
                 title: "Free & Open Access",
-                body: "Host unlimited public and private repositories without annoying enterprise limits or dark patterns.",
+                body: "Host unlimited public and private repositories without annoying enterprise gates or dark patterns.",
               },
             ].map((f) => (
               <div
                 key={f.title}
-                className="group relative rounded-xl border border-border/70 bg-card p-6 shadow-xs transition-all hover:-translate-y-1 hover:border-primary/40 hover:shadow-md"
+                className="group relative rounded-xl border border-border bg-card p-6 shadow-xs hover:border-foreground/30 transition-all"
               >
-                <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-primary/10 text-primary transition-colors group-hover:bg-primary group-hover:text-primary-foreground">
+                <div className="flex h-10 w-10 items-center justify-center rounded-lg border border-border bg-muted/60 text-foreground transition-colors group-hover:bg-foreground group-hover:text-background">
                   <f.icon className="h-5 w-5" />
                 </div>
                 <h3 className="mt-4 text-base font-semibold text-foreground tracking-tight">
@@ -683,7 +687,7 @@ function LandingView() {
       <section className="border-t border-border bg-card/40 py-20">
         <div className="mx-auto max-w-7xl px-4">
           <div className="text-center max-w-2xl mx-auto space-y-3">
-            <h2 className="text-2xl font-bold tracking-tight text-foreground sm:text-3xl">
+            <h2 className="text-2xl sm:text-3xl font-semibold tracking-tight text-foreground">
               Three simple steps
             </h2>
             <p className="text-sm text-muted-foreground">
@@ -709,8 +713,11 @@ function LandingView() {
                 body: "Commit changes, push to main, share public links, and let anyone inspect your code.",
               },
             ].map((s) => (
-              <div key={s.step} className="rounded-xl border border-border/60 bg-card p-6 relative">
-                <span className="font-mono text-3xl font-extrabold text-primary/30">{s.step}</span>
+              <div
+                key={s.step}
+                className="rounded-xl border border-border bg-card p-6 shadow-xs relative"
+              >
+                <span className="font-mono text-3xl font-extrabold text-muted-foreground/30">{s.step}</span>
                 <h3 className="mt-2 text-base font-semibold text-foreground">{s.title}</h3>
                 <p className="mt-2 text-xs text-muted-foreground leading-relaxed">{s.body}</p>
               </div>
@@ -720,18 +727,23 @@ function LandingView() {
       </section>
 
       {/* TRENDING REPOSITORIES SECTION */}
-      <section className="py-20 border-t border-border">
+      <section className="py-20 border-t border-border bg-background">
         <div className="mx-auto max-w-7xl px-4">
           <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 mb-8">
             <div>
-              <h2 className="text-2xl font-bold tracking-tight text-foreground">
+              <h2 className="text-2xl sm:text-3xl font-semibold tracking-tight text-foreground">
                 Trending repositories
               </h2>
               <p className="text-xs text-muted-foreground mt-1">
                 Explore what developers are building and sharing on GitBowl.
               </p>
             </div>
-            <Button asChild variant="outline" size="sm">
+            <Button
+              asChild
+              variant="outline"
+              size="sm"
+              className="border-border bg-card text-foreground hover:bg-accent"
+            >
               <Link to="/explore">View all repositories &rarr;</Link>
             </Button>
           </div>

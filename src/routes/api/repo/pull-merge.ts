@@ -1,6 +1,7 @@
 // src/routes/api/repo/pull-merge.ts
 import { createFileRoute } from "@tanstack/react-router";
 import { getSupabaseAdmin } from "@/integrations/supabase/client.server";
+import { getActor, requireRepoAccess } from "@/lib/authz.server";
 import { commitChanges } from "@/lib/commit-service.server";
 
 export const Route = createFileRoute("/api/repo/pull-merge")({
@@ -8,25 +9,14 @@ export const Route = createFileRoute("/api/repo/pull-merge")({
     handlers: {
       POST: async ({ request }) => {
         try {
-          const authHeader = request.headers.get("authorization");
-          if (!authHeader) {
+          const actor = await getActor(request);
+          if (!actor) {
             return new Response(JSON.stringify({ error: "Authentication required" }), {
               status: 401,
               headers: { "Content-Type": "application/json" },
             });
           }
 
-          const supabase = getSupabaseAdmin();
-          const token = authHeader.replace(/^Bearer\s+/i, "").trim();
-          const { data: userData, error: authError } = await supabase.auth.getUser(token);
-          if (authError || !userData?.user) {
-            return new Response(JSON.stringify({ error: "Invalid token" }), {
-              status: 401,
-              headers: { "Content-Type": "application/json" },
-            });
-          }
-
-          const user = userData.user;
           const body = await request.json().catch(() => ({}));
           const { prId, method = "squash", commitMessage } = body;
 
@@ -37,14 +27,16 @@ export const Route = createFileRoute("/api/repo/pull-merge")({
             });
           }
 
+          const supabase = getSupabaseAdmin();
+
           // 1. Fetch Pull Request details
           const { data: pr, error: prError } = await supabase
             .from("pull_requests" as any)
             .select(
-              "id, repo_id, number, title, body, state, source_branch, target_branch, repositories(id, name, owner_id, default_branch)",
+              "id, repo_id, number, title, body, state, source_branch, target_branch, repositories(id, name, is_private, owner_id, org_id, default_branch)",
             )
             .eq("id", prId)
-            .single();
+            .maybeSingle();
 
           if (prError || !pr) {
             return new Response(JSON.stringify({ error: "Pull request not found" }), {
@@ -63,10 +55,11 @@ export const Route = createFileRoute("/api/repo/pull-merge")({
           const repo = (pr as any).repositories;
           const repoId = (pr as any).repo_id;
 
-          // 2. Authorization check: must be repo owner or collaborator
-          if (repo.owner_id !== user.id) {
+          // 2. Authorization check: must have write access to repository
+          const access = await requireRepoAccess(actor, repo, "write");
+          if (!access.allowed) {
             return new Response(
-              JSON.stringify({ error: "Forbidden: Only repo maintainers can merge pull requests" }),
+              JSON.stringify({ error: "Forbidden: Only repo maintainers with write permissions can merge pull requests" }),
               {
                 status: 403,
                 headers: { "Content-Type": "application/json" },
@@ -81,7 +74,7 @@ export const Route = createFileRoute("/api/repo/pull-merge")({
 
           const commitResult = await commitChanges({
             repoId,
-            authHeader,
+            authHeader: request.headers.get("authorization") || "",
             message: finalCommitMsg,
             branch: (pr as any).target_branch || "main",
           });
@@ -126,12 +119,12 @@ export const Route = createFileRoute("/api/repo/pull-merge")({
                 .select("id")
                 .eq("repo_id", repoId)
                 .eq("number", issueNum)
-                .single();
+                .maybeSingle();
 
               if (issueRow) {
                 await supabase.from("issue_comments").insert({
                   issue_id: issueRow.id,
-                  author_id: user.id,
+                  author_id: actor.userId,
                   body: `Closed by pull request #${(pr as any).number} (${commitResult.commitSha.slice(0, 7)}).`,
                 });
               }

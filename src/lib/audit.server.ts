@@ -20,6 +20,7 @@ export async function logAuditEvent(params: AuditEventParams): Promise<void> {
 
     if (params.req) {
       ip =
+        params.req.headers.get("cf-connecting-ip") ||
         params.req.headers.get("x-forwarded-for")?.split(",")[0]?.trim() ||
         params.req.headers.get("x-real-ip") ||
         "127.0.0.1";

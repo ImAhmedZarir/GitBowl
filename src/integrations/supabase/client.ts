@@ -3,9 +3,6 @@ import { createClient } from "@supabase/supabase-js";
 import type { Database } from "./types";
 import { brokeredPreviewStorage } from "./previewAuthStorage";
 
-const FALLBACK_SUPABASE_URL = "https://ovbxcorfmbqgmlcihfej.supabase.co";
-const FALLBACK_SUPABASE_KEY = "sb_publishable_u1eePvD5rpIbk96i39jc2A_GRdIYEvW";
-
 function isNewSupabaseApiKey(value: string): boolean {
   return value.startsWith("sb_publishable_") || value.startsWith("sb_secret_");
 }
@@ -50,8 +47,14 @@ function createSupabaseClient() {
       ? process.env["VITE_SUPABASE_PUBLISHABLE_KEY"] || process.env["SUPABASE_PUBLISHABLE_KEY"]
       : undefined);
 
-  const SUPABASE_URL = envUrl || FALLBACK_SUPABASE_URL;
-  const SUPABASE_PUBLISHABLE_KEY = envKey || FALLBACK_SUPABASE_KEY;
+  if (!envUrl || !envKey) {
+    throw new Error(
+      "[Security Fatal] Missing VITE_SUPABASE_URL or VITE_SUPABASE_PUBLISHABLE_KEY in client environment.",
+    );
+  }
+
+  const SUPABASE_URL = envUrl;
+  const SUPABASE_PUBLISHABLE_KEY = envKey;
 
   let storageOption = undefined;
   try {

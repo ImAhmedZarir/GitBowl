@@ -4,12 +4,12 @@
 import fs from "node:fs";
 import path from "node:path";
 import os from "node:os";
-import { execSync } from "node:child_process";
+import { execFileSync } from "node:child_process";
 import readline from "node:readline";
 
 const CONFIG_DIR = path.join(os.homedir(), ".gitbowl");
 const CONFIG_FILE = path.join(CONFIG_DIR, "config.json");
-const DEFAULT_HOST = process.env.GITBOWL_HOST || "https://gitbowl.dev";
+const DEFAULT_HOST = process.env.GITBOWL_HOST || "https://gitbowl.zone.id";
 
 function loadConfig() {
   try {
@@ -24,9 +24,12 @@ function loadConfig() {
 
 function saveConfig(cfg) {
   if (!fs.existsSync(CONFIG_DIR)) {
-    fs.mkdirSync(CONFIG_DIR, { recursive: true });
+    fs.mkdirSync(CONFIG_DIR, { recursive: true, mode: 0o700 });
   }
-  fs.writeFileSync(CONFIG_FILE, JSON.stringify(cfg, null, 2), "utf8");
+  fs.writeFileSync(CONFIG_FILE, JSON.stringify(cfg, null, 2), {
+    encoding: "utf8",
+    mode: 0o600, // Restrict file permissions to current user only
+  });
 }
 
 async function apiRequest(endpoint, options = {}) {
@@ -212,13 +215,15 @@ async function handleRepo(subcommand, args) {
 
   if (subcommand === "clone") {
     const target = positional[0];
-    if (!target) return console.log("Usage: bowl repo clone <owner/repo>");
+    if (!target || !/^[a-zA-Z0-9_.-]+\/[a-zA-Z0-9_.-]+$/.test(target)) {
+      return console.log("Usage: bowl repo clone <owner/repo>");
+    }
     const cfg = loadConfig();
     const host = cfg.host || DEFAULT_HOST;
     const cloneUrl = `${host}/${target}.git`;
     console.log(`Cloning into '${target}'...`);
     try {
-      execSync(`git clone ${cloneUrl}`, { stdio: "inherit" });
+      execFileSync("git", ["clone", cloneUrl], { stdio: "inherit" });
     } catch (e) {
       console.error(`✕ Git clone failed: ${e.message}`);
     }
@@ -231,12 +236,11 @@ async function handleRepo(subcommand, args) {
 async function handlePr(subcommand, args) {
   const { flags, positional } = parseFlags(args);
 
-  // Guess repo from git remote or flag
   let repoPath = flags.repo;
   if (!repoPath) {
     try {
-      const remote = execSync("git remote get-url origin", { encoding: "utf8" }).trim();
-      const match = remote.match(/gitbowl\.dev[:/]([^/]+\/[^.]+)/);
+      const remote = execFileSync("git", ["remote", "get-url", "origin"], { encoding: "utf8" }).trim();
+      const match = remote.match(/(?:gitbowl\.zone\.id|gitbowl\.dev)[:/]([^/]+\/[^.]+)/);
       if (match) repoPath = match[1];
     } catch {
       // ignore
@@ -281,11 +285,17 @@ async function handlePr(subcommand, args) {
 
   if (subcommand === "checkout") {
     const prNumber = positional[0];
-    if (!prNumber) return console.log("Usage: bowl pr checkout <number>");
+    if (!prNumber || !/^\d+$/.test(prNumber)) {
+      return console.log("Usage: bowl pr checkout <number>");
+    }
     console.log(`Fetching and checking out PR #${prNumber}...`);
     try {
-      execSync(`git fetch origin pull/${prNumber}/head:pr-${prNumber}`, { stdio: "inherit" });
-      execSync(`git checkout pr-${prNumber}`, { stdio: "inherit" });
+      execFileSync(
+        "git",
+        ["fetch", "origin", `pull/${prNumber}/head:pr-${prNumber}`],
+        { stdio: "inherit" },
+      );
+      execFileSync("git", ["checkout", `pr-${prNumber}`], { stdio: "inherit" });
       console.log(`✓ Switched to branch pr-${prNumber}`);
     } catch (e) {
       console.error(`✕ Checkout failed: ${e.message}`);
@@ -301,8 +311,8 @@ async function handleIssue(subcommand, args) {
   let repoPath = flags.repo;
   if (!repoPath) {
     try {
-      const remote = execSync("git remote get-url origin", { encoding: "utf8" }).trim();
-      const match = remote.match(/gitbowl\.dev[:/]([^/]+\/[^.]+)/);
+      const remote = execFileSync("git", ["remote", "get-url", "origin"], { encoding: "utf8" }).trim();
+      const match = remote.match(/(?:gitbowl\.zone\.id|gitbowl\.dev)[:/]([^/]+\/[^.]+)/);
       if (match) repoPath = match[1];
     } catch {
       // ignore

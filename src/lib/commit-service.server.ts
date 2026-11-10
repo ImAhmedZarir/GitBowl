@@ -228,6 +228,9 @@ export async function commitChanges(params: CommitChangesParams) {
     );
   }
 
+  const targetBranch = (params.branch || repo.default_branch || "main").trim();
+  const isDefaultBranch = targetBranch === (repo.default_branch || "main");
+
   // 4. Compute New Commit SHA
   const now = new Date().toISOString();
   const commitMsg = sanitizeCommitMessage(message, "Update files");
@@ -248,7 +251,7 @@ export async function commitChanges(params: CommitChangesParams) {
     )
     .digest("hex");
 
-  // 5. Atomic File Upserts
+  // 5. File Upserts - Only modify repo_files working tree for default branch
   const upserts = sanitizedFiles.map((f) => ({
     repo_id: repoId,
     path: f.path,
@@ -258,12 +261,14 @@ export async function commitChanges(params: CommitChangesParams) {
     updated_at: now,
   }));
 
-  const { error: upsertErr } = await supabaseAdmin
-    .from("repo_files")
-    .upsert(upserts, { onConflict: "repo_id,path" });
+  if (isDefaultBranch) {
+    const { error: upsertErr } = await supabaseAdmin
+      .from("repo_files")
+      .upsert(upserts, { onConflict: "repo_id,path" });
 
-  if (upsertErr) {
-    throw new CommitError(`Database file write failed: ${upsertErr.message}`, 500);
+    if (upsertErr) {
+      throw new CommitError(`Database file write failed: ${upsertErr.message}`, 500);
+    }
   }
 
   // 6. Record Commit in Database
@@ -283,14 +288,38 @@ export async function commitChanges(params: CommitChangesParams) {
     throw new CommitError(`Commit record creation failed: ${commitErr?.message}`, 500);
   }
 
-  // 7. Update Repository Head SHA & Updated Timestamp
-  await supabaseAdmin
-    .from("repositories")
-    .update({
-      head_sha: newCommitSha,
+  // 7. Update Repository / Branch Ref pointers
+  if (isDefaultBranch) {
+    await supabaseAdmin
+      .from("repositories")
+      .update({
+        head_sha: newCommitSha,
+        updated_at: now,
+      })
+      .eq("id", repoId);
+  }
+
+  // Upsert refs record for branch
+  await supabaseAdmin.from("refs" as any).upsert(
+    {
+      repo_id: repoId,
+      name: `refs/heads/${targetBranch}`,
+      sha: newCommitSha,
       updated_at: now,
-    })
-    .eq("id", repoId);
+    },
+    { onConflict: "repo_id,name" },
+  );
+
+  // Upsert branches record
+  await supabaseAdmin.from("branches" as any).upsert(
+    {
+      repo_id: repoId,
+      name: targetBranch,
+      commit_sha: newCommitSha,
+      updated_at: now,
+    },
+    { onConflict: "repo_id,name" },
+  );
 
   // 8. Enqueue Async Durable Backup in storage_backups
   await supabaseAdmin.from("storage_backups").insert({

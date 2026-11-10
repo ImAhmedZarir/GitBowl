@@ -1,25 +1,23 @@
 import { createFileRoute } from "@tanstack/react-router";
 import crypto from "crypto";
 import { supabaseAdmin } from "@/integrations/supabase/client.server";
+import { getActor } from "@/lib/authz.server";
 
-async function getAuthenticatedUser(request: Request) {
-  const authHeader = request.headers.get("authorization");
-  if (!authHeader?.startsWith("Bearer ")) return null;
-  const token = authHeader.slice(7);
-  const {
-    data: { user },
-    error,
-  } = await supabaseAdmin.auth.getUser(token);
-  if (error || !user) return null;
-  return user;
-}
+const ALLOWED_SCOPES = new Set([
+  "repo",
+  "repo:read",
+  "repo:write",
+  "user",
+  "user:read",
+  "org:read",
+]);
 
 export const Route = createFileRoute("/api/auth/tokens")({
   server: {
     handlers: {
       GET: async ({ request }) => {
-        const user = await getAuthenticatedUser(request);
-        if (!user) {
+        const actor = await getActor(request);
+        if (!actor) {
           return new Response(JSON.stringify({ error: "Unauthorized" }), {
             status: 401,
             headers: { "Content-Type": "application/json" },
@@ -30,7 +28,7 @@ export const Route = createFileRoute("/api/auth/tokens")({
           const { data, error } = await supabaseAdmin
             .from("personal_access_tokens")
             .select("id, name, token_prefix, scopes, expires_at, last_used_at, created_at")
-            .eq("user_id", user.id)
+            .eq("user_id", actor.userId)
             .order("created_at", { ascending: false });
 
           if (error) {
@@ -54,8 +52,8 @@ export const Route = createFileRoute("/api/auth/tokens")({
       },
 
       POST: async ({ request }) => {
-        const user = await getAuthenticatedUser(request);
-        if (!user) {
+        const actor = await getActor(request);
+        if (!actor) {
           return new Response(JSON.stringify({ error: "Unauthorized" }), {
             status: 401,
             headers: { "Content-Type": "application/json" },
@@ -64,8 +62,37 @@ export const Route = createFileRoute("/api/auth/tokens")({
 
         try {
           const body = await request.json();
-          const name = (body.name || "Default Token").trim();
-          const expiresInDays = body.expires_in_days ? Number(body.expires_in_days) : 30;
+          const name = String(body.name || "Default Token").trim().slice(0, 100);
+          if (!name) {
+            return new Response(JSON.stringify({ error: "Token name cannot be empty" }), {
+              status: 400,
+              headers: { "Content-Type": "application/json" },
+            });
+          }
+
+          // Check token limit per user (max 50)
+          const { count, error: countErr } = await supabaseAdmin
+            .from("personal_access_tokens")
+            .select("id", { count: "exact", head: true })
+            .eq("user_id", actor.userId);
+
+          if (!countErr && (count ?? 0) >= 50) {
+            return new Response(
+              JSON.stringify({ error: "Token limit reached. Maximum 50 personal access tokens allowed per account." }),
+              { status: 400, headers: { "Content-Type": "application/json" } },
+            );
+          }
+
+          // Validate scopes against allowlist
+          let requestedScopes = Array.isArray(body.scopes) ? body.scopes : ["repo"];
+          const validScopes = requestedScopes.filter((s: any) => typeof s === "string" && ALLOWED_SCOPES.has(s));
+          if (validScopes.length === 0) {
+            validScopes.push("repo:read");
+          }
+
+          // Expiry handling: clamp between 1 and 365 days, or null
+          const rawDays = body.expires_in_days !== undefined ? Number(body.expires_in_days) : 30;
+          const expiresInDays = isNaN(rawDays) ? 30 : Math.max(0, Math.min(365, rawDays));
 
           // Generate secure personal access token
           const rawBytes = crypto.randomBytes(24).toString("hex");
@@ -81,11 +108,11 @@ export const Route = createFileRoute("/api/auth/tokens")({
           const { data, error } = await supabaseAdmin
             .from("personal_access_tokens")
             .insert({
-              user_id: user.id,
+              user_id: actor.userId,
               name,
               token_prefix,
               token_hash,
-              scopes: body.scopes || ["repo"],
+              scopes: validScopes,
               expires_at,
             })
             .select("id, name, token_prefix, scopes, expires_at, created_at")
@@ -115,8 +142,8 @@ export const Route = createFileRoute("/api/auth/tokens")({
       },
 
       DELETE: async ({ request }) => {
-        const user = await getAuthenticatedUser(request);
-        if (!user) {
+        const actor = await getActor(request);
+        if (!actor) {
           return new Response(JSON.stringify({ error: "Unauthorized" }), {
             status: 401,
             headers: { "Content-Type": "application/json" },
@@ -136,7 +163,7 @@ export const Route = createFileRoute("/api/auth/tokens")({
           .from("personal_access_tokens")
           .delete()
           .eq("id", id)
-          .eq("user_id", user.id);
+          .eq("user_id", actor.userId);
 
         return new Response(JSON.stringify({ success: true }), {
           status: 200,

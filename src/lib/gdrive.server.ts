@@ -24,6 +24,11 @@ function loadCredentials() {
   };
 }
 
+export function isGDriveConfigured(): boolean {
+  const creds = loadCredentials();
+  return Boolean(creds.client_email && creds.private_key && creds.root_folder_id);
+}
+
 const credentials = loadCredentials();
 export const ROOT_FOLDER_ID = credentials.root_folder_id;
 
@@ -32,6 +37,12 @@ let cachedToken: { token: string; expiresAt: number } | null = null;
 let jwtClient: JWT | null = null;
 
 async function getAccessToken(): Promise<string> {
+  if (!isGDriveConfigured()) {
+    throw new Error(
+      "[GDrive] Google Drive is not configured. Missing GDRIVE_CLIENT_EMAIL, GDRIVE_PRIVATE_KEY, or GDRIVE_ROOT_FOLDER_ID in environment.",
+    );
+  }
+
   const now = Date.now();
   if (cachedToken && cachedToken.expiresAt > now + 60000) {
     return cachedToken.token;
@@ -395,6 +406,17 @@ export async function checkDriveHealth(): Promise<{
   clientEmail: string;
   error?: string;
 }> {
+  if (!isGDriveConfigured()) {
+    return {
+      ok: false,
+      folderName: "Not Configured",
+      folderId: ROOT_FOLDER_ID || "None",
+      clientEmail: credentials.client_email || "None",
+      error:
+        "Google Drive service account credentials are not configured in environment variables (GDRIVE_CLIENT_EMAIL, GDRIVE_PRIVATE_KEY, GDRIVE_ROOT_FOLDER_ID).",
+    };
+  }
+
   try {
     const token = await getAccessToken();
     const res = await fetch(
@@ -444,6 +466,16 @@ export async function syncFilesToGoogleDrive(
 ): Promise<{ success: boolean; syncedCount: number; errors: string[] }> {
   let syncedCount = 0;
   const errors: string[] = [];
+  if (!isGDriveConfigured()) {
+    return {
+      success: false,
+      syncedCount: 0,
+      errors: [
+        "Google Drive is not configured on this instance. Set GDRIVE_CLIENT_EMAIL, GDRIVE_PRIVATE_KEY, and GDRIVE_ROOT_FOLDER_ID in environment.",
+      ],
+    };
+  }
+
   if (!files || files.length === 0) {
     return { success: true, syncedCount: 0, errors: [] };
   }

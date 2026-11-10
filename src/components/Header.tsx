@@ -48,6 +48,7 @@ import { BowlLogo } from "@/components/BowlLogo";
 import { ThemeToggle } from "@/components/ThemeToggle";
 import { GlobalSearch } from "@/components/GlobalSearch";
 import { KeyboardShortcutsModal } from "@/components/KeyboardShortcutsModal";
+import { firebaseAuth, fbSignOut } from "@/lib/firebase";
 import { toast } from "sonner";
 
 export function Header() {
@@ -159,6 +160,7 @@ export function Header() {
   async function signOut() {
     await queryClient.cancelQueries();
     queryClient.clear();
+    await fbSignOut(firebaseAuth).catch(() => {});
     await supabase.auth.signOut();
     navigate({ to: "/auth", replace: true });
   }
@@ -185,7 +187,7 @@ export function Header() {
 
   return (
     <>
-      <header className="sticky top-0 z-40 border-b border-border/80 bg-background/95 backdrop-blur-md">
+      <header className="sticky top-0 z-40 border-b border-border bg-background/85 backdrop-blur-xl transition-colors shadow-xs">
         <div className="mx-auto flex h-14 max-w-7xl items-center justify-between px-4 sm:px-6">
           {/* LEFT: Logo & Breadcrumb / Nav */}
           <div className="flex items-center gap-3">
@@ -202,8 +204,8 @@ export function Header() {
               to="/"
               className="flex items-center gap-2.5 font-bold tracking-tight text-foreground transition-opacity hover:opacity-90"
             >
-              <BowlLogo className="h-6 w-6 text-primary" />
-              <span className="text-base font-bold bg-gradient-to-r from-primary to-primary/80 bg-clip-text text-transparent">
+              <BowlLogo className="h-6 w-6 text-foreground" />
+              <span className="text-base font-semibold tracking-tight text-foreground">
                 GitBowl
               </span>
             </Link>

@@ -4,24 +4,98 @@ import { promisify } from "node:util";
 import fs from "node:fs/promises";
 import path from "node:path";
 import os from "node:os";
+import dns from "node:dns/promises";
 import JSZip from "jszip";
 import { supabaseAdmin } from "@/integrations/supabase/client.server";
 import { syncFilesToGoogleDrive } from "@/lib/gdrive.server";
 import { createNotification } from "@/lib/notifications.server";
 import { notifySearchEngines } from "@/lib/indexnow.server";
 import { materialize } from "@/lib/git.server";
+import { getActor } from "@/lib/authz.server";
 import {
   sanitizeUnicode,
   sanitizeFilePath,
   sanitizeFileRecord,
   sanitizeCommitMessage,
-  formatFriendlyErrorMessage,
 } from "@/lib/unicode";
 
 const execFileAsync = promisify(execFile);
 
+const ALLOWED_GIT_HOSTS = new Set([
+  "github.com",
+  "gitlab.com",
+  "bitbucket.org",
+  "codeberg.org",
+]);
+
 const BINARY_EXT =
   /\.(png|jpe?g|gif|webp|ico|pdf|zip|gz|tar|tgz|7z|rar|mp4|webm|mp3|wav|ogg|wasm|exe|dll|so|dylib|bin|iso|dmg|ttf|otf|woff2?|eot)$/i;
+
+// In-memory rate limiter: 5 imports/hour per user, 10/hour per IP
+const importAttempts = new Map<string, { count: number; resetAt: number }>();
+
+function checkImportRateLimit(key: string, limit: number, windowMs = 60 * 60 * 1000): boolean {
+  const now = Date.now();
+  const entry = importAttempts.get(key);
+  if (!entry || now > entry.resetAt) {
+    importAttempts.set(key, { count: 1, resetAt: now + windowMs });
+    return false;
+  }
+  entry.count++;
+  return entry.count > limit;
+}
+
+function isPrivateIp(ip: string): boolean {
+  const trimmed = ip.trim().toLowerCase();
+  if (trimmed === "localhost" || trimmed === "::1" || trimmed === "0.0.0.0") return true;
+
+  // IPv4 checks
+  if (trimmed.includes(".")) {
+    const parts = trimmed.split(".").map(Number);
+    if (parts.length !== 4 || parts.some((p) => isNaN(p) || p < 0 || p > 255)) return true;
+    if (parts[0] === 0) return true; // 0.0.0.0/8
+    if (parts[0] === 10) return true; // 10.0.0.0/8
+    if (parts[0] === 127) return true; // 127.0.0.0/8
+    if (parts[0] === 169 && parts[1] === 254) return true; // 169.254.0.0/16 (link local & metadata)
+    if (parts[0] === 172 && parts[1] >= 16 && parts[1] <= 31) return true; // 172.16.0.0/12
+    if (parts[0] === 192 && parts[1] === 168) return true; // 192.168.0.0/16
+    if (parts[0] === 100 && parts[1] >= 64 && parts[1] <= 127) return true; // 100.64.0.0/10 CGNAT
+    if (parts[0] >= 224) return true; // Multicast & reserved
+  }
+
+  // IPv6 checks
+  if (trimmed.includes(":")) {
+    if (trimmed.startsWith("fc") || trimmed.startsWith("fd")) return true; // Unique local
+    if (trimmed.startsWith("fe80")) return true; // Link local
+    if (trimmed.startsWith("::ffff:")) {
+      const v4Part = trimmed.replace("::ffff:", "");
+      return isPrivateIp(v4Part);
+    }
+  }
+
+  return false;
+}
+
+export async function validateAndResolveGitHost(host: string): Promise<void> {
+  const cleanHost = host.toLowerCase().trim();
+  if (!ALLOWED_GIT_HOSTS.has(cleanHost)) {
+    throw new Error(
+      `Host '${cleanHost}' is not allowed for repository imports. Supported hosts: github.com, gitlab.com, bitbucket.org, codeberg.org`,
+    );
+  }
+
+  try {
+    const addresses = await dns.lookup(cleanHost, { all: true });
+    for (const record of addresses) {
+      if (isPrivateIp(record.address)) {
+        throw new Error(`Host '${cleanHost}' resolved to restricted IP ${record.address}`);
+      }
+    }
+  } catch (err: any) {
+    if (err.message.includes("restricted IP") || err.message.includes("not allowed")) throw err;
+    throw new Error(`DNS lookup failed for '${cleanHost}': ${err.message}`);
+  }
+}
 
 interface FileItem {
   path: string;
@@ -30,18 +104,10 @@ interface FileItem {
   size: number;
 }
 
-/**
- * Parses any Git repository URL:
- * - GitHub (https://github.com/owner/repo, owner/repo, git@github.com:owner/repo.git)
- * - GitLab (https://gitlab.com/owner/repo.git)
- * - Bitbucket (https://bitbucket.org/owner/repo.git)
- * - Codeberg (https://codeberg.org/owner/repo.git)
- * - Generic/Custom Git server (https://example.com/org/project.git)
- */
 export function parseAnyGitUrl(rawInput: string): {
   normalizedCloneUrl: string;
   repoName: string;
-  provider: "github" | "gitlab" | "bitbucket" | "codeberg" | "generic";
+  provider: "github" | "gitlab" | "bitbucket" | "codeberg";
   ownerName?: string;
 } {
   const trimmed = rawInput.trim();
@@ -49,7 +115,7 @@ export function parseAnyGitUrl(rawInput: string): {
     throw new Error("Git repository URL is required");
   }
 
-  // Shorthand: "owner/repo" (common GitHub shorthand)
+  // Shorthand: "owner/repo" (assumed GitHub)
   if (/^[a-zA-Z0-9_.-]+\/[a-zA-Z0-9_.-]+$/.test(trimmed)) {
     const [owner, name] = trimmed.split("/");
     const cleanRepoName = name.replace(/\.git$/i, "");
@@ -61,42 +127,32 @@ export function parseAnyGitUrl(rawInput: string): {
     };
   }
 
-  // SSH style: git@host:owner/repo.git
-  const sshMatch = trimmed.match(/^git@([a-zA-Z0-9_.-]+):([a-zA-Z0-9_./-]+?)(?:\.git)?$/);
-  if (sshMatch) {
-    const domain = sshMatch[1];
-    const repoPath = sshMatch[2];
-    const parts = repoPath.split("/").filter(Boolean);
-    const repoName = parts[parts.length - 1] || "repository";
-    return {
-      normalizedCloneUrl: `https://${domain}/${repoPath}.git`,
-      repoName: repoName.replace(/\.git$/i, ""),
-      provider: domain.includes("github")
-        ? "github"
-        : domain.includes("gitlab")
-          ? "gitlab"
-          : "generic",
-      ownerName: parts[0],
-    };
-  }
-
-  // Standard URL: https://..., http://..., git://...
   let urlObj: URL;
   try {
     const withProto = /^[a-zA-Z]+:\/\//.test(trimmed) ? trimmed : `https://${trimmed}`;
     urlObj = new URL(withProto);
   } catch {
     throw new Error(
-      `Invalid Git URL format: "${trimmed}". Examples: owner/repo, https://github.com/owner/repo, https://gitlab.com/owner/repo.git`,
+      `Invalid Git URL format: "${trimmed}". Examples: owner/repo, https://github.com/owner/repo`,
     );
   }
 
+  if (urlObj.protocol !== "https:") {
+    throw new Error("Only secure HTTPS Git URLs are supported for repository import");
+  }
+
   const host = urlObj.hostname.toLowerCase();
-  let provider: "github" | "gitlab" | "bitbucket" | "codeberg" | "generic" = "generic";
-  if (host.includes("github.com")) provider = "github";
-  else if (host.includes("gitlab.com")) provider = "gitlab";
-  else if (host.includes("bitbucket.org")) provider = "bitbucket";
-  else if (host.includes("codeberg.org")) provider = "codeberg";
+  let provider: "github" | "gitlab" | "bitbucket" | "codeberg" | null = null;
+  if (host === "github.com") provider = "github";
+  else if (host === "gitlab.com") provider = "gitlab";
+  else if (host === "bitbucket.org") provider = "bitbucket";
+  else if (host === "codeberg.org") provider = "codeberg";
+
+  if (!provider) {
+    throw new Error(
+      `Unsupported host '${host}'. Imports are strictly restricted to github.com, gitlab.com, bitbucket.org, and codeberg.org.`,
+    );
+  }
 
   const pathParts = urlObj.pathname
     .replace(/^\/+|\/+$/g, "")
@@ -109,9 +165,8 @@ export function parseAnyGitUrl(rawInput: string): {
   const rawLastPart = pathParts[pathParts.length - 1] || "imported-repo";
   const repoName = rawLastPart.replace(/\.git$/i, "");
 
-  // Build clean clone URL (with .git if not already present)
-  let normalizedCloneUrl = urlObj.toString();
-  if (!normalizedCloneUrl.endsWith(".git") && !normalizedCloneUrl.includes("?")) {
+  let normalizedCloneUrl = `https://${host}/${pathParts.join("/")}`;
+  if (!normalizedCloneUrl.endsWith(".git")) {
     normalizedCloneUrl += ".git";
   }
 
@@ -124,32 +179,59 @@ export function parseAnyGitUrl(rawInput: string): {
 }
 
 /**
- * Recursively scans directory and collects all files, preserving dotfiles (.gitignore, .env, .github, etc.)
+ * Recursively scans directory and collects files with strict security controls:
+ * - NO symlinks followed (isSymbolicLink check)
+ * - Verifies realpath stays inside baseDir
+ * - Max 5,000 files
+ * - Max 15MB per file
+ * - Max 200MB total repository size
  */
 async function walkClonedDirectory(
   baseDir: string,
   relPath: string,
   files: FileItem[],
+  totalSizeRef: { bytes: number; count: number },
+  canonicalBase: string,
 ): Promise<void> {
   const currentDir = path.join(baseDir, relPath);
   const entries = await fs.readdir(currentDir, { withFileTypes: true });
 
   for (const entry of entries) {
-    if (entry.name === ".git") continue; // Exclude .git internals only; preserve all user dotfiles!
+    if (entry.name === ".git") continue; // Exclude internal git control directory
+
+    if (totalSizeRef.count >= 5000) {
+      throw new Error("Repository exceeds maximum limit of 5,000 files. Import halted.");
+    }
 
     const rawItemRel = relPath ? `${relPath}/${entry.name}` : entry.name;
     const itemRel = rawItemRel.replace(/\\/g, "/").replace(/^\/+/, "");
     const fullPath = path.join(currentDir, entry.name);
 
+    // Defense against symlinks: NEVER follow symlinks!
+    if (entry.isSymbolicLink()) {
+      console.warn(`[Security] Skipping symlink entry during import: ${itemRel}`);
+      continue;
+    }
+
     if (entry.isDirectory()) {
-      await walkClonedDirectory(baseDir, itemRel, files);
-    } else if (entry.isFile() || entry.isSymbolicLink()) {
+      await walkClonedDirectory(baseDir, itemRel, files, totalSizeRef, canonicalBase);
+    } else if (entry.isFile()) {
       try {
-        const stat = await fs.stat(fullPath);
-        // Skip excessively large individual binary files (>15MB) to prevent Postgres timeout
-        if (stat.size > 15 * 1024 * 1024) {
-          console.warn(`[Import] Skipping file >15MB: ${itemRel} (${stat.size} bytes)`);
+        // Double-check realpath stays strictly inside canonical clone base
+        const real = await fs.realpath(fullPath);
+        if (!real.startsWith(canonicalBase)) {
+          console.warn(`[Security] Blocked path traversal attempt on ${itemRel}`);
           continue;
+        }
+
+        const stat = await fs.stat(fullPath);
+        if (stat.size > 15 * 1024 * 1024) {
+          console.warn(`[Import] Skipping file exceeding 15MB: ${itemRel} (${stat.size} bytes)`);
+          continue;
+        }
+
+        if (totalSizeRef.bytes + stat.size > 200 * 1024 * 1024) {
+          throw new Error("Repository total size exceeds 200MB limit. Import halted.");
         }
 
         const isBinary = BINARY_EXT.test(itemRel);
@@ -168,42 +250,43 @@ async function walkClonedDirectory(
           }
         }
 
-        files.push(
-          sanitizeFileRecord({
-            path: itemRel,
-            content,
-            is_binary: isBin,
-            size: isBin ? buf.length : Buffer.byteLength(content, "utf-8"),
-          }),
-        );
-      } catch (fileErr) {
+        const fileRecord = sanitizeFileRecord({
+          path: itemRel,
+          content,
+          is_binary: isBin,
+          size: isBin ? buf.length : Buffer.byteLength(content, "utf-8"),
+        });
+
+        files.push(fileRecord);
+        totalSizeRef.bytes += fileRecord.size;
+        totalSizeRef.count += 1;
+      } catch (fileErr: any) {
+        if (fileErr.message.includes("limit")) throw fileErr;
         console.warn(`[Import] Warning reading ${itemRel}:`, fileErr);
       }
     }
   }
 }
 
-/**
- * Clones repository using native Git CLI.
- * Works seamlessly with GitHub, GitLab, Bitbucket, Codeberg, and any Git URL.
- */
 async function cloneRepoWithGit(
   cloneUrl: string,
   githubToken?: string,
 ): Promise<{ files: FileItem[]; commitMessage?: string }> {
   const tempDir = await fs.mkdtemp(path.join(os.tmpdir(), "gitbowl-clone-"));
+  const canonicalBase = await fs.realpath(tempDir);
+
   try {
-    let finalUrl = cloneUrl;
+    const gitArgs = [
+      "-c", "protocol.allow=never",
+      "-c", "protocol.https.allow=always",
+    ];
+
     if (githubToken && cloneUrl.includes("github.com")) {
-      try {
-        const u = new URL(cloneUrl);
-        u.username = githubToken;
-        u.password = "x-oauth-basic";
-        finalUrl = u.toString();
-      } catch {
-        // fallback
-      }
+      const sanitizedToken = githubToken.replace(/[\r\n]/g, "").trim();
+      gitArgs.push("-c", `http.extraHeader=Authorization: Bearer ${sanitizedToken}`);
     }
+
+    gitArgs.push("clone", "--depth", "1", "--single-branch", "--no-tags", "--", cloneUrl, tempDir);
 
     const env = {
       ...process.env,
@@ -211,9 +294,8 @@ async function cloneRepoWithGit(
       GIT_ASKPASS: "echo",
     };
 
-    // Execute git clone --depth 1 --single-branch
-    await execFileAsync("git", ["clone", "--depth", "1", "--single-branch", finalUrl, tempDir], {
-      timeout: 120_000, // 2 minutes
+    await execFileAsync("git", gitArgs, {
+      timeout: 120_000,
       env,
       maxBuffer: 25 * 1024 * 1024,
     });
@@ -232,16 +314,14 @@ async function cloneRepoWithGit(
     }
 
     const files: FileItem[] = [];
-    await walkClonedDirectory(tempDir, "", files);
+    const sizeTracker = { bytes: 0, count: 0 };
+    await walkClonedDirectory(tempDir, "", files, sizeTracker, canonicalBase);
     return { files, commitMessage };
   } finally {
     await fs.rm(tempDir, { recursive: true, force: true }).catch(() => {});
   }
 }
 
-/**
- * Fallback zipball downloader for GitHub repositories if git clone encounters a network block.
- */
 async function fallbackDownloadGithubZip(
   owner: string,
   repo: string,
@@ -260,7 +340,7 @@ async function fallbackDownloadGithubZip(
     try {
       const headers: Record<string, string> = { "User-Agent": "GitBowl-Importer/3.0" };
       if (githubToken && url.includes("api.github.com")) {
-        headers["Authorization"] = `token ${githubToken}`;
+        headers["Authorization"] = `token ${githubToken.replace(/[\r\n]/g, "").trim()}`;
       }
       const res = await fetch(url, { headers, redirect: "follow" });
       if (res.ok) {
@@ -287,6 +367,8 @@ async function fallbackDownloadGithubZip(
   const firstDir = fileNames[0]?.split("/")[0] || "";
 
   const files: FileItem[] = [];
+  let totalBytes = 0;
+
   for (const [rawPath, entry] of Object.entries(zip.files)) {
     if (entry.dir) continue;
     const cleanPath = rawPath.startsWith(`${firstDir}/`)
@@ -294,7 +376,17 @@ async function fallbackDownloadGithubZip(
       : rawPath;
     if (!cleanPath || cleanPath.startsWith(".git/")) continue;
 
+    if (files.length >= 5000) {
+      throw new Error("Repository archive exceeds 5,000 files limit.");
+    }
+
     const buf = await entry.async("nodebuffer");
+    if (buf.length > 15 * 1024 * 1024) continue; // Skip single files >15MB
+
+    if (totalBytes + buf.length > 200 * 1024 * 1024) {
+      throw new Error("Repository archive exceeds 200MB size limit.");
+    }
+
     const isBinary =
       BINARY_EXT.test(cleanPath) ||
       /\.(png|jpe?g|gif|webp|ico|wasm|exe|dll|pdf|zip|bin|dat|sqlite|db|pyc|jar|class|so|dylib|wasm)$/i.test(
@@ -324,59 +416,44 @@ async function fallbackDownloadGithubZip(
         size,
       }),
     );
+    totalBytes += size;
   }
 
   return files;
 }
 
-/**
- * Inserts files into public.repo_files using size-aware adaptive batching.
- * Prevents PostgreSQL statement timeout errors.
- */
 async function insertFilesAdaptively(
   supabase: typeof supabaseAdmin,
   repoId: string,
   files: FileItem[],
 ): Promise<void> {
   const MAX_BATCH_FILES = 25;
-  const MAX_BATCH_BYTES = 180 * 1024; // 180 KB payload cap per statement
+  const MAX_BATCH_BYTES = 180 * 1024;
 
-  // Sanitize all files before chunking
   const sanitized = files.map((f) => sanitizeFileRecord(f));
-
   const batches: FileItem[][] = [];
   let currentBatch: FileItem[] = [];
   let currentBatchBytes = 0;
 
   for (const file of sanitized) {
-    const fileBytes = (file.content?.length || 0) + (file.size || 0);
-
-    if (fileBytes >= MAX_BATCH_BYTES) {
-      if (currentBatch.length > 0) {
-        batches.push(currentBatch);
-        currentBatch = [];
-        currentBatchBytes = 0;
-      }
-      batches.push([file]);
-      continue;
-    }
-
-    if (currentBatch.length >= MAX_BATCH_FILES || currentBatchBytes + fileBytes > MAX_BATCH_BYTES) {
+    const fileBytes = file.size || (file.content ? Buffer.byteLength(file.content) : 0);
+    if (
+      currentBatch.length >= MAX_BATCH_FILES ||
+      (currentBatchBytes + fileBytes > MAX_BATCH_BYTES && currentBatch.length > 0)
+    ) {
       batches.push(currentBatch);
-      currentBatch = [file];
-      currentBatchBytes = fileBytes;
-    } else {
-      currentBatch.push(file);
-      currentBatchBytes += fileBytes;
+      currentBatch = [];
+      currentBatchBytes = 0;
     }
+    currentBatch.push(file);
+    currentBatchBytes += fileBytes;
   }
-
   if (currentBatch.length > 0) {
     batches.push(currentBatch);
   }
 
   for (const batch of batches) {
-    await insertBatchWithRetry(supabase, repoId, batch);
+    await insertBatchWithRetry(supabase, repoId, batch, 3);
   }
 }
 
@@ -384,83 +461,32 @@ async function insertBatchWithRetry(
   supabase: typeof supabaseAdmin,
   repoId: string,
   batch: FileItem[],
-  retries = 2,
+  retries: number,
 ): Promise<void> {
-  // Always sanitize every single row prior to database insertion
-  const rows = batch.map((f) => {
-    const s = sanitizeFileRecord(f);
-    return {
-      path: s.path,
-      content: s.content,
-      is_binary: s.is_binary,
-      size: s.size,
-      repo_id: repoId,
-      updated_at: new Date().toISOString(),
-    };
-  });
+  const records = batch.map((f) => ({
+    repo_id: repoId,
+    path: sanitizeFilePath(f.path),
+    content: f.content,
+    is_binary: f.is_binary,
+    size: f.size,
+  }));
 
-  const { error } = await supabase.from("repo_files").upsert(rows, { onConflict: "repo_id,path" });
+  const { error } = await supabase.from("repo_files").insert(records);
+  if (!error) return;
 
-  if (error) {
-    // Check if error is related to PostgreSQL Unicode escape sequence or invalid byte sequence
-    const errText = (error.message || "").toLowerCase();
-    const isUnicodeError =
-      errText.includes("unicode escape") ||
-      errText.includes("22p05") ||
-      errText.includes("invalid byte sequence") ||
-      errText.includes("cannot be converted to text") ||
-      errText.includes("cannot be converted to type jsonb");
-
-    if (isUnicodeError) {
-      console.warn(
-        `[Import] Unicode escape sequence error detected on batch of ${batch.length} files. Converting text files to Base64 to ensure 100% database compatibility...`,
-      );
-      // Promote all text files in this batch to base64 binary encoding
-      const safeRows = batch.map((f) => {
-        const cleanPath = sanitizeFilePath(f.path);
-        let content = f.content;
-        let isBinary = f.is_binary;
-        if (!isBinary) {
-          isBinary = true;
-          content = Buffer.from(content, "utf-8").toString("base64");
-        }
-        return {
-          path: cleanPath,
-          content,
-          is_binary: isBinary,
-          size: f.size || content.length,
-          repo_id: repoId,
-          updated_at: new Date().toISOString(),
-        };
-      });
-
-      const { error: safeErr } = await supabase
-        .from("repo_files")
-        .upsert(safeRows, { onConflict: "repo_id,path" });
-
-      if (!safeErr) {
-        console.log(`[Import] Unicode auto-recovery successfully resolved ${batch.length} files.`);
-        return;
-      }
-    }
-
-    if (batch.length > 1) {
-      console.warn(
-        `[Import] Statement error on ${batch.length} files (${error.message}). Splitting into sub-batches...`,
-      );
-      const mid = Math.ceil(batch.length / 2);
-      await insertBatchWithRetry(supabase, repoId, batch.slice(0, mid), retries);
-      await insertBatchWithRetry(supabase, repoId, batch.slice(mid), retries);
-      return;
-    }
-
-    if (retries > 0) {
-      await new Promise((resolve) => setTimeout(resolve, 200));
-      return insertBatchWithRetry(supabase, repoId, batch, retries - 1);
-    }
-
-    throw error;
+  if (batch.length > 1) {
+    const mid = Math.ceil(batch.length / 2);
+    await insertBatchWithRetry(supabase, repoId, batch.slice(0, mid), retries);
+    await insertBatchWithRetry(supabase, repoId, batch.slice(mid), retries);
+    return;
   }
+
+  if (retries > 0) {
+    await new Promise((resolve) => setTimeout(resolve, 200));
+    return insertBatchWithRetry(supabase, repoId, batch, retries - 1);
+  }
+
+  throw error;
 }
 
 export const Route = createFileRoute("/api/github/import")({
@@ -469,57 +495,72 @@ export const Route = createFileRoute("/api/github/import")({
       POST: async ({ request }) => {
         let createdRepoId: string | null = null;
         try {
-          const body = await request.json().catch(() => ({}));
-          const rawUrl = (body.gitUrl || body.githubUrl || "").trim();
-          const targetName = body.targetName;
-          const isPrivate = Boolean(body.isPrivate);
-          const githubToken = body.githubToken;
-          let userId = body.userId;
-
-          if (!userId) {
-            const authHeader = request.headers.get("authorization");
-            if (authHeader?.startsWith("Bearer ")) {
-              const {
-                data: { user },
-              } = await supabaseAdmin.auth.getUser(authHeader.slice(7));
-              userId = user?.id;
-            }
-          }
-
-          if (!userId) {
+          const actor = await getActor(request);
+          if (!actor) {
             return new Response(JSON.stringify({ error: "Authentication required to import" }), {
               status: 401,
               headers: { "Content-Type": "application/json" },
             });
           }
 
+          const clientIp =
+            request.headers.get("cf-connecting-ip") ||
+            request.headers.get("x-forwarded-for")?.split(",")[0]?.trim() ||
+            "127.0.0.1";
+
+          // Enforce rate limits: 5 imports/hour per user, 10/hour per IP
+          if (checkImportRateLimit(`user:${actor.userId}`, 5)) {
+            return new Response(
+              JSON.stringify({ error: "Import limit exceeded: max 5 imports per hour per account." }),
+              { status: 429, headers: { "Content-Type": "application/json" } },
+            );
+          }
+          if (checkImportRateLimit(`ip:${clientIp}`, 10)) {
+            return new Response(
+              JSON.stringify({ error: "Too many import requests from this network. Please wait." }),
+              { status: 429, headers: { "Content-Type": "application/json" } },
+            );
+          }
+
+          const body = await request.json().catch(() => ({}));
+          const rawUrl = (body.gitUrl || body.githubUrl || "").trim();
+          const targetName = body.targetName;
+          const isPrivate = Boolean(body.isPrivate);
+          const githubToken = body.githubToken;
+          const userId = actor.userId; // Strictly use actor.userId, NEVER body.userId!
+
           if (!rawUrl) {
             return new Response(
               JSON.stringify({
                 error:
-                  "Please provide a Git repository URL (e.g. https://github.com/owner/repo, https://gitlab.com/owner/repo.git, or owner/repo)",
+                  "Please provide a Git repository URL (e.g. https://github.com/owner/repo or owner/repo)",
               }),
               { status: 400, headers: { "Content-Type": "application/json" } },
             );
           }
 
-          // 1. Parse ANY Git URL
+          // 1. Parse Git URL with strict scheme and provider restrictions
           const parsed = parseAnyGitUrl(rawUrl);
+
+          // 2. Perform DNS validation and anti-SSRF verification
+          const host = new URL(parsed.normalizedCloneUrl).hostname;
+          await validateAndResolveGitHost(host);
+
           const repoName = (targetName || parsed.repoName)
             .trim()
             .toLowerCase()
             .replace(/[^a-z0-9_.-]/g, "-");
 
-          // 2. Fetch user profile
+          // 3. Fetch user profile
           const { data: profile } = await supabaseAdmin
             .from("profiles")
             .select("username")
             .eq("id", userId)
             .maybeSingle();
 
-          const username = profile?.username || "developer";
+          const username = profile?.username || actor.username || "developer";
 
-          // 3. Check if repo already exists
+          // 4. Check if repo already exists
           const { data: existing } = await supabaseAdmin
             .from("repositories")
             .select("id")
@@ -536,20 +577,17 @@ export const Route = createFileRoute("/api/github/import")({
             );
           }
 
-          // 4. Clone repository files (using native git clone with fallback)
+          // 5. Clone repository files (using native git CLI with secure protocol restrictions)
           let filesToInsert: FileItem[] = [];
           let commitMsg = `Imported from ${parsed.normalizedCloneUrl}`;
 
           try {
-            console.log(`[Import] Cloning ${parsed.normalizedCloneUrl} via git CLI...`);
+            console.log(`[Import] Securely cloning ${parsed.normalizedCloneUrl}...`);
             const cloneResult = await cloneRepoWithGit(parsed.normalizedCloneUrl, githubToken);
             filesToInsert = cloneResult.files;
             if (cloneResult.commitMessage) {
               commitMsg = cloneResult.commitMessage;
             }
-            console.log(
-              `[Import] Git clone succeeded: ${filesToInsert.length} files scanned (including dotfiles).`,
-            );
           } catch (gitErr: any) {
             console.warn(
               `[Import] Native git clone failed (${gitErr.message}). Attempting fallback if GitHub...`,
@@ -568,7 +606,7 @@ export const Route = createFileRoute("/api/github/import")({
                 );
               }
               throw new Error(
-                `Failed to clone repository from '${parsed.normalizedCloneUrl}': ${gitErr.message || "Network error"}`,
+                `Failed to clone repository: ${gitErr.message || "Network error"}`,
               );
             }
           }
@@ -582,7 +620,7 @@ export const Route = createFileRoute("/api/github/import")({
             });
           }
 
-          // 5. Create repository in database
+          // 6. Create repository in database
           const { data: newRepo, error: repoError } = await supabaseAdmin
             .from("repositories")
             .insert({
@@ -598,10 +636,10 @@ export const Route = createFileRoute("/api/github/import")({
           if (repoError) throw repoError;
           createdRepoId = newRepo.id;
 
-          // 6. Insert all files adaptively
+          // 7. Insert all files adaptively
           await insertFilesAdaptively(supabaseAdmin, newRepo.id, filesToInsert);
 
-          // 7. Create initial commit
+          // 8. Create initial commit
           const commitChanges = filesToInsert
             .slice(0, 250)
             .map((f) => ({ path: sanitizeFilePath(f.path), type: "added" }));
@@ -613,19 +651,18 @@ export const Route = createFileRoute("/api/github/import")({
             changes: commitChanges,
           });
 
-          // 8. Materialize real Git objects in git_objects and update head_sha
+          // 9. Materialize real Git objects in git_objects and update head_sha
           try {
             await materialize(supabaseAdmin, newRepo as any, username);
           } catch (matErr) {
             console.warn("[Import] Git object materialization notice:", matErr);
           }
 
-          // 9. Mirror files to Google Drive Backup Tier
+          // 10. Mirror files to Google Drive Backup Tier
           const totalBytes = filesToInsert.reduce((acc, f) => acc + (f.size || 0), 0);
           try {
             const syncResult = await syncFilesToGoogleDrive(username, newRepo.name, filesToInsert);
 
-            // Record completed backup job in storage_backups with mandatory kind column
             await supabaseAdmin.from("storage_backups" as any).insert({
               repo_id: newRepo.id,
               kind: "manifest",

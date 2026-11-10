@@ -45,6 +45,9 @@ import {
   Search,
   AlertCircle,
   RefreshCw,
+  Tag,
+  BarChart3,
+  Laptop,
 } from "lucide-react";
 import { supabase } from "@/integrations/supabase/client";
 import { Header } from "@/components/Header";
@@ -89,12 +92,19 @@ import {
   type RepoFileMeta,
 } from "@/lib/repo-queries";
 import { CodeEditorLazy } from "@/components/CodeEditorLazy";
+import { LanguageBar } from "@/components/repo/LanguageBar";
+import { QuickSetupView } from "@/components/repo/QuickSetupView";
+import { ReleasesTab } from "@/components/repo/ReleasesTab";
+import { InsightsTab } from "@/components/repo/InsightsTab";
+import { WatchDropdown } from "@/components/repo/WatchDropdown";
 
-type Tab = "code" | "issues" | "pulls" | "commits" | "settings";
+type Tab = "code" | "issues" | "pulls" | "commits" | "releases" | "insights" | "settings";
 
 export const Route = createFileRoute("/$owner/$repo")({
   validateSearch: (s: Record<string, unknown>): { tab?: Tab | undefined } => ({
-    tab: ["code", "issues", "pulls", "commits", "settings"].includes(s["tab"] as string)
+    tab: ["code", "issues", "pulls", "commits", "releases", "insights", "settings"].includes(
+      s["tab"] as string,
+    )
       ? (s["tab"] as Tab)
       : undefined,
   }),
@@ -444,6 +454,8 @@ function RepoPage() {
 
             {/* Watch / Fork / Star Buttons */}
             <div className="flex flex-wrap items-center gap-2">
+              <WatchDropdown repoId={repo.id} />
+
               <Button
                 variant="outline"
                 size="sm"
@@ -513,6 +525,30 @@ function RepoPage() {
               <GitPullRequest className="h-4 w-4" />
               <span>Pull requests</span>
             </button>
+            <button
+              type="button"
+              onClick={() => switchTab("releases")}
+              className={`flex items-center gap-1.5 border-b-2 px-3 py-2 transition-colors ${
+                activeTab === "releases"
+                  ? "border-primary text-foreground font-semibold"
+                  : "border-transparent text-muted-foreground hover:border-border hover:text-foreground"
+              }`}
+            >
+              <Tag className="h-4 w-4" />
+              <span>Releases</span>
+            </button>
+            <button
+              type="button"
+              onClick={() => switchTab("insights")}
+              className={`flex items-center gap-1.5 border-b-2 px-3 py-2 transition-colors ${
+                activeTab === "insights"
+                  ? "border-primary text-foreground font-semibold"
+                  : "border-transparent text-muted-foreground hover:border-border hover:text-foreground"
+              }`}
+            >
+              <BarChart3 className="h-4 w-4" />
+              <span>Insights</span>
+            </button>
             {isOwner && (
               <button
                 type="button"
@@ -554,6 +590,15 @@ function RepoPage() {
         {activeTab === "issues" && <IssuesTab repoId={repo.id} />}
         {activeTab === "pulls" && <PullsTab repo={repo} isOwner={isOwner} />}
         {activeTab === "commits" && <CommitsTab repoId={repo.id} />}
+        {activeTab === "releases" && (
+          <ReleasesTab
+            repoId={repo.id}
+            isOwner={canWrite}
+            repoName={repo.name}
+            owner={owner}
+          />
+        )}
+        {activeTab === "insights" && <InsightsTab repoId={repo.id} />}
         {activeTab === "settings" && isOwner && <SettingsTab repo={repo} owner={owner} />}
       </main>
 
@@ -599,6 +644,34 @@ function CodeTab({ repo, filesMeta, loadingFiles, isOwner, authorId, onSaved }: 
   const [commitOpen, setCommitOpen] = useState(false);
   const [commitMessage, setCommitMessage] = useState("");
   const [busyCommit, setBusyCommit] = useState(false);
+
+  // Latest commit query for the GitHub-parity commit bar
+  const { data: latestCommit } = useQuery({
+    queryKey: ["latest-commit", repo.id],
+    queryFn: async () => {
+      const { data } = await supabase
+        .from("commits")
+        .select("id, message, created_at, author_id, profiles(username, display_name)")
+        .eq("repo_id", repo.id)
+        .order("created_at", { ascending: false })
+        .limit(1)
+        .maybeSingle();
+      return data;
+    },
+    staleTime: 1000 * 30,
+  });
+
+  const { data: commitCount = 0 } = useQuery({
+    queryKey: ["commit-count", repo.id],
+    queryFn: async () => {
+      const { count } = await supabase
+        .from("commits")
+        .select("id", { count: "exact", head: true })
+        .eq("repo_id", repo.id);
+      return count ?? 0;
+    },
+    staleTime: 1000 * 30,
+  });
 
   // Default active file to README.md if present
   useEffect(() => {
@@ -917,12 +990,54 @@ function CodeTab({ repo, filesMeta, loadingFiles, isOwner, authorId, onSaved }: 
             </Button>
           )}
 
-          <CloneDropdown owner={repo.profiles?.username} repoName={repo.name} />
+          <CloneDropdown
+            owner={repo.profiles?.username || repo.organizations?.slug || "user"}
+            repoName={repo.name}
+            repoId={repo.id}
+          />
         </div>
       </div>
 
-      {/* REPOSITORY WORKSPACE GRID (Image 1 Split View) */}
-      <div className="grid grid-cols-1 gap-4 md:grid-cols-12 rounded-xl border border-border bg-card overflow-hidden shadow-xs min-h-[580px]">
+      {/* LANGUAGE BREAKDOWN BAR */}
+      {filesMeta.length > 0 && <LanguageBar filesMeta={filesMeta} />}
+
+      {/* GITHUB-PARITY LATEST COMMIT BAR */}
+      {latestCommit && (
+        <div className="flex flex-wrap items-center justify-between gap-3 px-3.5 py-2 rounded-lg border border-border bg-card/80 text-xs shadow-xs">
+          <div className="flex items-center gap-2.5 min-w-0">
+            <div className="h-6 w-6 rounded-full bg-primary/10 border border-border flex items-center justify-center text-[11px] font-semibold text-primary shrink-0">
+              {((latestCommit as any).profiles?.username || "d")[0]?.toUpperCase()}
+            </div>
+            <span className="font-semibold text-foreground shrink-0">
+              {(latestCommit as any).profiles?.display_name || (latestCommit as any).profiles?.username || "developer"}
+            </span>
+            <span className="text-muted-foreground truncate font-normal max-w-sm sm:max-w-md" title={(latestCommit as any).message}>
+              {((latestCommit as any).message || "Update files").split("\n")[0]}
+            </span>
+          </div>
+          <div className="flex items-center gap-2.5 shrink-0 text-muted-foreground font-mono text-[11px]">
+            <span className="hidden sm:inline">
+              {repo.head_sha ? repo.head_sha.slice(0, 7) : (latestCommit as any).id.slice(0, 7)}
+            </span>
+            <span>•</span>
+            <span>{new Date((latestCommit as any).created_at).toLocaleDateString()}</span>
+            <div className="flex items-center gap-1 text-foreground font-sans font-medium ml-1">
+              <History className="h-3.5 w-3.5 text-muted-foreground" />
+              <span>{commitCount} commit{commitCount !== 1 ? "s" : ""}</span>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* EMPTY REPO SETUP OR WORKSPACE GRID */}
+      {!loadingFiles && filesMeta.length === 0 && !repo.head_sha ? (
+        <QuickSetupView
+          owner={repo.profiles?.username || repo.organizations?.slug || "user"}
+          repoName={repo.name}
+          defaultBranch={repo.default_branch || "main"}
+        />
+      ) : (
+        <div className="grid grid-cols-1 gap-4 md:grid-cols-12 rounded-xl border border-border bg-card overflow-hidden shadow-xs min-h-[580px]">
         {/* DESKTOP LEFT EXPLORER (3 cols / 260px) */}
         <aside className="hidden md:flex md:col-span-3 flex-col border-r border-border bg-muted/20 p-2 overflow-y-auto max-h-[720px]">
           <div className="flex items-center justify-between px-2 py-1 text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">
@@ -1105,8 +1220,21 @@ function CodeTab({ repo, filesMeta, loadingFiles, isOwner, authorId, onSaved }: 
                     <p className="text-xs">Binary file preview not supported directly.</p>
                   </div>
                 ) : viewMode === "preview" && isMarkdown ? (
-                  <div className="p-6 overflow-y-auto max-h-[640px] bg-background">
-                    <MarkdownRenderer content={currentContent} />
+                  <div className="p-4 sm:p-6 overflow-y-auto max-h-[700px] bg-background">
+                    <div className="rounded-xl border border-border bg-card overflow-hidden shadow-xs">
+                      <div className="flex items-center justify-between border-b border-border bg-muted/40 px-4 py-2.5 text-xs font-semibold text-foreground">
+                        <div className="flex items-center gap-2">
+                          <BookOpen className="h-4 w-4 text-muted-foreground" />
+                          <span>{activePath}</span>
+                        </div>
+                        <span className="text-[11px] font-mono text-muted-foreground">
+                          {Math.round((currentContent.length / 1024) * 10) / 10} KB
+                        </span>
+                      </div>
+                      <div className="p-6 md:p-8">
+                        <MarkdownRenderer content={currentContent} />
+                      </div>
+                    </div>
                   </div>
                 ) : (
                   <CodeEditorLazy
@@ -1151,6 +1279,7 @@ function CodeTab({ repo, filesMeta, loadingFiles, isOwner, authorId, onSaved }: 
           )}
         </div>
       </div>
+      )}
 
       {/* NEW FILE DIALOG */}
       <Dialog open={newFileOpen} onOpenChange={setNewFileOpen}>
@@ -1235,14 +1364,36 @@ function CodeTab({ repo, filesMeta, loadingFiles, isOwner, authorId, onSaved }: 
 /*                               CLONE DROPDOWN                               */
 /* -------------------------------------------------------------------------- */
 
-function CloneDropdown({ owner, repoName }: { owner: string; repoName: string }) {
+function CloneDropdown({
+  owner,
+  repoName,
+  repoId,
+}: {
+  owner: string;
+  repoName: string;
+  repoId?: string;
+}) {
+  const [protocol, setProtocol] = useState<"https" | "ssh" | "gh" | "bowl">("https");
   const [copied, setCopied] = useState(false);
-  const cloneUrl = `https://gitbowl.zone.id/${owner}/${repoName}.git`;
 
-  function copyClone() {
-    navigator.clipboard.writeText(cloneUrl);
+  const httpsUrl = `https://gitbowl.zone.id/${owner}/${repoName}.git`;
+  const sshUrl = `git@gitbowl.zone.id:${owner}/${repoName}.git`;
+  const ghCmd = `gh repo clone https://gitbowl.zone.id/${owner}/${repoName}.git`;
+  const bowlCmd = `bowl clone ${owner}/${repoName}`;
+
+  const currentCommand =
+    protocol === "https"
+      ? httpsUrl
+      : protocol === "ssh"
+      ? sshUrl
+      : protocol === "gh"
+      ? ghCmd
+      : bowlCmd;
+
+  function copyCommand() {
+    navigator.clipboard.writeText(currentCommand);
     setCopied(true);
-    toast.success("Clone URL copied to clipboard");
+    toast.success("Copied to clipboard");
     setTimeout(() => setCopied(false), 2000);
   }
 
@@ -1251,36 +1402,125 @@ function CloneDropdown({ owner, repoName }: { owner: string; repoName: string })
       <DropdownMenuTrigger asChild>
         <Button
           size="sm"
-          className="h-8 gap-1.5 px-3 text-xs font-semibold bg-primary hover:bg-primary/90 text-primary-foreground"
+          className="h-8 gap-1.5 px-3 text-xs font-semibold bg-white text-black hover:bg-zinc-200 transition-colors shadow-xs"
         >
           <Code2 className="h-3.5 w-3.5" />
           <span>Code</span>
           <ChevronDown className="h-3 w-3 opacity-70" />
         </Button>
       </DropdownMenuTrigger>
-      <DropdownMenuContent align="end" className="w-80 p-4 space-y-3">
-        <div className="flex items-center justify-between text-xs font-semibold text-foreground">
-          <span>Clone with HTTPS</span>
+      <DropdownMenuContent
+        align="end"
+        className="w-96 p-4 space-y-3 bg-card backdrop-blur-xl border-border text-foreground shadow-2xl rounded-xl"
+      >
+        <div className="flex items-center justify-between border-b border-border pb-2 text-xs">
+          <span className="font-semibold text-foreground">Clone Repository</span>
+          <div className="flex items-center gap-1 bg-muted p-0.5 rounded-md text-[11px]">
+            <button
+              type="button"
+              onClick={() => setProtocol("https")}
+              className={`px-2 py-0.5 rounded transition-colors ${
+                protocol === "https"
+                  ? "bg-foreground text-background font-semibold shadow-xs"
+                  : "text-muted-foreground hover:text-foreground"
+              }`}
+            >
+              HTTPS
+            </button>
+            <button
+              type="button"
+              onClick={() => setProtocol("ssh")}
+              className={`px-2 py-0.5 rounded transition-colors ${
+                protocol === "ssh"
+                  ? "bg-foreground text-background font-semibold shadow-xs"
+                  : "text-muted-foreground hover:text-foreground"
+              }`}
+            >
+              SSH
+            </button>
+            <button
+              type="button"
+              onClick={() => setProtocol("gh")}
+              className={`px-2 py-0.5 rounded transition-colors ${
+                protocol === "gh"
+                  ? "bg-foreground text-background font-semibold shadow-xs"
+                  : "text-muted-foreground hover:text-foreground"
+              }`}
+            >
+              GH CLI
+            </button>
+            <button
+              type="button"
+              onClick={() => setProtocol("bowl")}
+              className={`px-2 py-0.5 rounded transition-colors ${
+                protocol === "bowl"
+                  ? "bg-foreground text-background font-semibold shadow-xs"
+                  : "text-muted-foreground hover:text-foreground"
+              }`}
+            >
+              Bowl CLI
+            </button>
+          </div>
         </div>
+
         <div className="flex items-center gap-1.5 rounded-lg border border-border bg-muted/50 p-1.5">
           <Input
             readOnly
-            value={cloneUrl}
-            className="h-7 border-none bg-transparent font-mono text-[11px] shadow-none focus-visible:ring-0"
+            value={currentCommand}
+            className="h-7 border-none bg-transparent font-mono text-[11px] text-foreground shadow-none focus-visible:ring-0"
           />
-          <Button size="sm" variant="ghost" className="h-7 w-7 p-0 shrink-0" onClick={copyClone}>
+          <Button
+            size="sm"
+            variant="ghost"
+            className="h-7 w-7 p-0 shrink-0 text-muted-foreground hover:text-foreground hover:bg-muted"
+            onClick={copyCommand}
+          >
             {copied ? (
-              <Check className="h-3.5 w-3.5 text-success" />
+              <Check className="h-3.5 w-3.5 text-emerald-500" />
             ) : (
               <Copy className="h-3.5 w-3.5" />
             )}
           </Button>
         </div>
-        <div className="rounded-md border border-primary/20 bg-primary/5 p-2 text-[11px] text-muted-foreground flex items-start gap-1.5">
-          <KeyRound className="h-3.5 w-3.5 text-primary shrink-0 mt-0.5" />
+
+        <div className="rounded-md border border-border bg-muted/30 p-2 text-[11px] text-muted-foreground flex items-start gap-1.5">
+          <KeyRound className="h-3.5 w-3.5 text-muted-foreground shrink-0 mt-0.5" />
           <span>
-            Use your GitBowl username and account password (or Personal Access Token) when prompted.
+            {protocol === "https"
+              ? "Use your GitBowl username and account password or Personal Access Token when prompted."
+              : protocol === "ssh"
+              ? "Ensure your SSH public key is added in Account Settings -> SSH Keys."
+              : protocol === "gh"
+              ? "Clone with official GitHub CLI compatible client."
+              : "Clone and auto-configure upstream remotes with the GitBowl CLI."}
           </span>
+        </div>
+
+        <div className="pt-2 border-t border-border space-y-1.5">
+          <a
+            href={`vscode://vscode.git/clone?url=${encodeURIComponent(httpsUrl)}`}
+            className="flex items-center justify-between w-full px-2.5 py-1.5 rounded-md hover:bg-muted text-xs text-foreground transition-colors"
+          >
+            <span className="flex items-center gap-2">
+              <Laptop className="h-3.5 w-3.5 text-muted-foreground" />
+              <span>Open with Visual Studio Code</span>
+            </span>
+            <ExternalLink className="h-3 w-3 text-muted-foreground" />
+          </a>
+
+          {repoId && (
+            <a
+              href={`/api/repo/archive?repoId=${repoId}&ref=main`}
+              download={`${repoName}.zip`}
+              className="flex items-center justify-between w-full px-2.5 py-1.5 rounded-md hover:bg-muted text-xs text-foreground transition-colors"
+            >
+              <span className="flex items-center gap-2">
+                <Download className="h-3.5 w-3.5 text-muted-foreground" />
+                <span>Download ZIP source archive</span>
+              </span>
+              <span className="text-[10px] text-muted-foreground font-mono">.zip</span>
+            </a>
+          )}
         </div>
       </DropdownMenuContent>
     </DropdownMenu>
@@ -1394,12 +1634,15 @@ function ForkButton({ repo, isOwner }: { repo: any; isOwner: boolean }) {
 /* -------------------------------------------------------------------------- */
 
 function CommitsTab({ repoId }: { repoId: string }) {
+  const [copiedId, setCopiedId] = useState<string | null>(null);
+  const [expandedId, setExpandedId] = useState<string | null>(null);
+
   const { data = [], isLoading } = useQuery({
     queryKey: ["commits", repoId],
     queryFn: async () => {
       const { data } = await supabase
         .from("commits")
-        .select("id, message, created_at, profiles(username)")
+        .select("id, message, changes, created_at, profiles(username, display_name)")
         .eq("repo_id", repoId)
         .order("created_at", { ascending: false });
       return data ?? [];
@@ -1407,36 +1650,122 @@ function CommitsTab({ repoId }: { repoId: string }) {
     staleTime: 1000 * 30,
   });
 
+  function copyCommitSha(id: string) {
+    navigator.clipboard.writeText(id);
+    setCopiedId(id);
+    toast.success("Commit hash copied");
+    setTimeout(() => setCopiedId(null), 2000);
+  }
+
   if (isLoading) {
     return (
       <div className="space-y-2 py-4">
         {Array.from({ length: 4 }).map((_, i) => (
-          <div key={i} className="h-14 rounded-lg bg-card border border-border animate-pulse" />
+          <div key={i} className="h-16 rounded-xl bg-card border border-white/[0.08] animate-pulse" />
         ))}
       </div>
     );
   }
 
   return (
-    <div className="rounded-xl border border-border bg-card divide-y divide-border overflow-hidden">
-      {data.map((c: any) => (
-        <div key={c.id} className="flex items-center justify-between px-4 py-3 text-xs">
-          <div className="space-y-0.5 min-w-0">
-            <p className="font-semibold text-foreground truncate">{c.message}</p>
-            <p className="text-[11px] text-muted-foreground">
-              <span className="font-medium text-foreground">
-                {c.profiles?.username || "developer"}
-              </span>{" "}
-              committed {timeAgo(c.created_at)}
-            </p>
+    <div className="rounded-xl border border-border bg-card divide-y divide-border overflow-hidden shadow-xs">
+      {data.map((c: any) => {
+        const lines = (c.message || "Commit").split("\n");
+        const title = lines[0];
+        const body = lines.slice(1).join("\n").trim();
+        const isExpanded = expandedId === c.id;
+        const changesList = Array.isArray(c.changes) ? c.changes : [];
+
+        return (
+          <div key={c.id} className="p-3.5 text-xs hover:bg-muted/30 transition-colors">
+            <div className="flex items-start justify-between gap-3">
+              <div className="flex items-start gap-2.5 min-w-0">
+                <div className="mt-0.5 rounded-full border border-border bg-muted/60 p-1 text-muted-foreground">
+                  <GitCommit className="h-3.5 w-3.5" />
+                </div>
+                <div className="space-y-1 min-w-0">
+                  <div className="flex items-center gap-2">
+                    <p className="font-semibold text-foreground truncate">{title}</p>
+                    {body && (
+                      <button
+                        type="button"
+                        onClick={() => setExpandedId(isExpanded ? null : c.id)}
+                        className="rounded bg-muted px-1.5 py-0.5 text-[10px] text-muted-foreground hover:text-foreground"
+                        title="Toggle full commit message"
+                      >
+                        ...
+                      </button>
+                    )}
+                  </div>
+                  <p className="text-[11px] text-muted-foreground">
+                    <span className="font-medium text-foreground">
+                      {c.profiles?.display_name || c.profiles?.username || "developer"}
+                    </span>{" "}
+                    committed {timeAgo(c.created_at)}
+                    {changesList.length > 0 && (
+                      <span className="ml-2 font-mono text-[10px] text-muted-foreground">
+                        ({changesList.length} changed {changesList.length === 1 ? "file" : "files"})
+                      </span>
+                    )}
+                  </p>
+                </div>
+              </div>
+
+              <div className="flex items-center gap-1.5 shrink-0">
+                <button
+                  type="button"
+                  onClick={() => copyCommitSha(c.id)}
+                  title="Copy full commit SHA"
+                  className="flex items-center gap-1 rounded border border-border bg-muted/40 px-2 py-1 font-mono text-[11px] text-foreground hover:bg-muted transition-colors"
+                >
+                  {copiedId === c.id ? (
+                    <Check className="h-3 w-3 text-emerald-500" />
+                  ) : (
+                    <Copy className="h-3 w-3 text-muted-foreground" />
+                  )}
+                  <span>{c.id.slice(0, 7)}</span>
+                </button>
+              </div>
+            </div>
+
+            {isExpanded && (
+              <div className="mt-3 pl-8 space-y-2 border-t border-border pt-2 text-foreground">
+                {body && (
+                  <pre className="whitespace-pre-wrap font-sans text-xs text-muted-foreground bg-muted/30 p-2 rounded-md border border-border">
+                    {body}
+                  </pre>
+                )}
+                {changesList.length > 0 && (
+                  <div className="space-y-1">
+                    <p className="text-[10px] font-mono uppercase text-muted-foreground">Changed files</p>
+                    <div className="space-y-0.5">
+                      {changesList.map((ch: any, idx: number) => (
+                        <div
+                          key={idx}
+                          className="flex items-center gap-1.5 font-mono text-[11px] text-muted-foreground"
+                        >
+                          <span
+                            className={`h-1.5 w-1.5 rounded-full ${
+                              ch.type === "added"
+                                ? "bg-emerald-500"
+                                : ch.type === "deleted"
+                                ? "bg-rose-500"
+                                : "bg-amber-500"
+                            }`}
+                          />
+                          <span>{ch.path || ch}</span>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )}
+              </div>
+            )}
           </div>
-          <span className="rounded bg-muted px-2 py-1 font-mono text-[11px] text-muted-foreground">
-            {c.id.slice(0, 7)}
-          </span>
-        </div>
-      ))}
+        );
+      })}
       {data.length === 0 && (
-        <p className="p-8 text-center text-xs text-muted-foreground">No commits recorded yet.</p>
+        <p className="p-8 text-center text-xs text-zinc-400">No commits recorded yet.</p>
       )}
     </div>
   );

@@ -657,36 +657,6 @@ function OwnerPage() {
             <button
               type="button"
               onClick={() =>
-                navigate({ to: "/$owner", params: { owner }, search: { tab: "projects" } })
-              }
-              className={`flex items-center gap-2 px-3 py-2 text-xs font-semibold border-b-2 transition-colors whitespace-nowrap ${
-                currentTab === "projects"
-                  ? "border-[#f78166] text-foreground"
-                  : "border-transparent text-muted-foreground hover:text-foreground hover:border-border"
-              }`}
-            >
-              <LayoutGrid className="h-4 w-4" />
-              Projects
-            </button>
-
-            <button
-              type="button"
-              onClick={() =>
-                navigate({ to: "/$owner", params: { owner }, search: { tab: "packages" } })
-              }
-              className={`flex items-center gap-2 px-3 py-2 text-xs font-semibold border-b-2 transition-colors whitespace-nowrap ${
-                currentTab === "packages"
-                  ? "border-[#f78166] text-foreground"
-                  : "border-transparent text-muted-foreground hover:text-foreground hover:border-border"
-              }`}
-            >
-              <Package className="h-4 w-4" />
-              Packages
-            </button>
-
-            <button
-              type="button"
-              onClick={() =>
                 navigate({ to: "/$owner", params: { owner }, search: { tab: "stars" } })
               }
               className={`flex items-center gap-2 px-3 py-2 text-xs font-semibold border-b-2 transition-colors whitespace-nowrap ${
@@ -1157,21 +1127,6 @@ function OwnerPage() {
                   </div>
                 )}
               </section>
-            )}
-
-            {/* TAB: PROJECTS & PACKAGES */}
-            {(currentTab === "projects" || currentTab === "packages") && (
-              <div className="py-16 text-center border border-dashed border-border rounded-lg space-y-2">
-                <Package className="h-8 w-8 text-muted-foreground mx-auto" />
-                <h3 className="text-sm font-semibold text-foreground capitalize">
-                  No {currentTab} published
-                </h3>
-                <p className="text-xs text-muted-foreground max-w-sm mx-auto">
-                  {currentTab === "packages"
-                    ? "Publish packages directly from your GitBowl repositories or container registries."
-                    : "Plan and track your engineering roadmap with GitBowl Projects."}
-                </p>
-              </div>
             )}
           </div>
         </div>

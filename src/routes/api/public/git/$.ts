@@ -111,7 +111,7 @@ async function handle(request: Request, splat: string) {
         if (!canRead) return text("Repository not found", 404);
       }
 
-      const buffer = await lfs.handleLfsDownload(oid);
+      const buffer = await lfs.handleLfsDownload(repo.id, oid);
       if (!buffer) return text("LFS object not found", 404);
 
       return new Response(new Uint8Array(buffer), {
@@ -164,7 +164,10 @@ async function handle(request: Request, splat: string) {
   }
 
   if (action === "info/refs") {
-    const head = await git.materialize(admin as any, repo, found.owner.username);
+    let head = repo.head_sha;
+    if (!head) {
+      head = await git.materialize(admin as any, repo, found.owner.username);
+    }
     const { data: allRefs } = await admin
       .from("refs" as any)
       .select("name, sha")

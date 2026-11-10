@@ -1,6 +1,7 @@
 // src/routes/api/repo/webhook-deliveries.ts
 import { createFileRoute } from "@tanstack/react-router";
 import { getSupabaseAdmin } from "@/integrations/supabase/client.server";
+import { getActor, requireRepoAccess } from "@/lib/authz.server";
 import { deliverWebhook } from "@/lib/webhooks.server";
 
 export const Route = createFileRoute("/api/repo/webhook-deliveries")({
@@ -8,6 +9,14 @@ export const Route = createFileRoute("/api/repo/webhook-deliveries")({
     handlers: {
       GET: async ({ request }) => {
         try {
+          const actor = await getActor(request);
+          if (!actor) {
+            return new Response(JSON.stringify({ error: "Authentication required" }), {
+              status: 401,
+              headers: { "Content-Type": "application/json" },
+            });
+          }
+
           const url = new URL(request.url);
           const webhookId = url.searchParams.get("webhookId");
           if (!webhookId) {
@@ -18,6 +27,28 @@ export const Route = createFileRoute("/api/repo/webhook-deliveries")({
           }
 
           const supabase = getSupabaseAdmin();
+          const { data: hook } = await supabase
+            .from("webhooks" as any)
+            .select("id, repo_id, repositories(id, is_private, owner_id, org_id)")
+            .eq("id", webhookId)
+            .maybeSingle();
+
+          if (!hook) {
+            return new Response(JSON.stringify({ error: "Webhook not found" }), {
+              status: 404,
+              headers: { "Content-Type": "application/json" },
+            });
+          }
+
+          const repo = (hook as any).repositories;
+          const access = await requireRepoAccess(actor, repo, "admin");
+          if (!access.allowed) {
+            return new Response(JSON.stringify({ error: "Admin access required" }), {
+              status: 403,
+              headers: { "Content-Type": "application/json" },
+            });
+          }
+
           const { data: deliveries, error } = await supabase
             .from("webhook_deliveries" as any)
             .select(
@@ -31,7 +62,10 @@ export const Route = createFileRoute("/api/repo/webhook-deliveries")({
 
           return new Response(JSON.stringify({ deliveries: deliveries || [] }), {
             status: 200,
-            headers: { "Content-Type": "application/json" },
+            headers: {
+              "Content-Type": "application/json",
+              "Cache-Control": "private, no-store",
+            },
           });
         } catch (err: any) {
           return new Response(
@@ -46,8 +80,8 @@ export const Route = createFileRoute("/api/repo/webhook-deliveries")({
 
       POST: async ({ request }) => {
         try {
-          const authHeader = request.headers.get("authorization");
-          if (!authHeader) {
+          const actor = await getActor(request);
+          if (!actor) {
             return new Response(JSON.stringify({ error: "Authentication required" }), {
               status: 401,
               headers: { "Content-Type": "application/json" },
@@ -65,43 +99,51 @@ export const Route = createFileRoute("/api/repo/webhook-deliveries")({
           }
 
           const supabase = getSupabaseAdmin();
-          const { data: hook, error: hookError } = await supabase
+          const { data: webhook, error } = await supabase
             .from("webhooks" as any)
-            .select("id, url, secret, repo_id, repositories(name)")
+            .select("*, repositories(id, is_private, owner_id, org_id)")
             .eq("id", webhookId)
             .single();
 
-          if (hookError || !hook) {
+          if (error || !webhook) {
             return new Response(JSON.stringify({ error: "Webhook not found" }), {
               status: 404,
               headers: { "Content-Type": "application/json" },
             });
           }
 
-          const hookRow = hook as any;
-          const payload = {
-            zen: "Anything added dilutes everything else.",
-            hook_id: hookRow.id,
-            action,
-            repository: { id: hookRow.repo_id, name: hookRow.repositories?.name },
-            sender: { login: "gitbowl-system" },
-          };
+          const repo = (webhook as any).repositories;
+          const access = await requireRepoAccess(actor, repo, "admin");
+          if (!access.allowed) {
+            return new Response(JSON.stringify({ error: "Admin access required" }), {
+              status: 403,
+              headers: { "Content-Type": "application/json" },
+            });
+          }
 
-          const result = await deliverWebhook({
-            webhookId: hookRow.id,
-            url: hookRow.url,
-            secret: hookRow.secret,
-            event: "ping",
-            payload,
-          });
+          if (action === "ping") {
+            const result = await deliverWebhook(webhook, "ping", {
+              zen: "Keep it logically awesome.",
+              hook_id: webhook.id,
+              hook: {
+                events: webhook.events,
+                active: webhook.is_active,
+              },
+            });
 
-          return new Response(JSON.stringify({ delivery: result }), {
-            status: 200,
+            return new Response(JSON.stringify({ success: result.success, delivery: result }), {
+              status: 200,
+              headers: { "Content-Type": "application/json" },
+            });
+          }
+
+          return new Response(JSON.stringify({ error: "Unknown action" }), {
+            status: 400,
             headers: { "Content-Type": "application/json" },
           });
         } catch (err: any) {
           return new Response(
-            JSON.stringify({ error: err.message || "Failed to deliver webhook" }),
+            JSON.stringify({ error: err.message || "Failed to process delivery action" }),
             {
               status: 500,
               headers: { "Content-Type": "application/json" },

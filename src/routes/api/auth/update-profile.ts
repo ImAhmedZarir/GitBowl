@@ -1,25 +1,23 @@
 import { createFileRoute } from "@tanstack/react-router";
 import { supabaseAdmin } from "@/integrations/supabase/client.server";
 import { isReservedUsername } from "@/lib/reserved-usernames";
+import { getActor } from "@/lib/authz.server";
 
-async function getAuthenticatedUser(request: Request) {
-  const authHeader = request.headers.get("authorization");
-  if (!authHeader?.startsWith("Bearer ")) return null;
-  const token = authHeader.slice(7);
-  const {
-    data: { user },
-    error,
-  } = await supabaseAdmin.auth.getUser(token);
-  if (error || !user) return null;
-  return user;
+function isValidUrl(val: string): boolean {
+  try {
+    const u = new URL(val);
+    return u.protocol === "http:" || u.protocol === "https:";
+  } catch {
+    return false;
+  }
 }
 
 export const Route = createFileRoute("/api/auth/update-profile")({
   server: {
     handlers: {
       POST: async ({ request }) => {
-        const user = await getAuthenticatedUser(request);
-        if (!user) {
+        const actor = await getActor(request);
+        if (!actor) {
           return new Response(JSON.stringify({ error: "Unauthorized" }), {
             status: 401,
             headers: { "Content-Type": "application/json" },
@@ -28,14 +26,31 @@ export const Route = createFileRoute("/api/auth/update-profile")({
 
         try {
           const body = await request.json();
-          const displayName = (body.displayName || "").trim();
-          const bio = body.bio !== undefined ? String(body.bio).slice(0, 250) : undefined;
+          const displayName = (body.displayName || "").trim().slice(0, 100);
+          const bio = body.bio !== undefined ? String(body.bio).trim().slice(0, 250) : undefined;
           const newUsername = (body.username || "").trim().toLowerCase();
-          const avatarUrl =
-            body.avatarUrl !== undefined ? String(body.avatarUrl).trim() : undefined;
-          const website = body.website !== undefined ? String(body.website).trim() : undefined;
-          const location = body.location !== undefined ? String(body.location).trim() : undefined;
-          const pronouns = body.pronouns !== undefined ? String(body.pronouns).trim() : undefined;
+          const rawAvatarUrl =
+            body.avatarUrl !== undefined ? String(body.avatarUrl).trim().slice(0, 500) : undefined;
+          const rawWebsite =
+            body.website !== undefined ? String(body.website).trim().slice(0, 200) : undefined;
+          const location =
+            body.location !== undefined ? String(body.location).trim().slice(0, 100) : undefined;
+          const pronouns =
+            body.pronouns !== undefined ? String(body.pronouns).trim().slice(0, 50) : undefined;
+
+          // URL safety validation
+          if (rawAvatarUrl && !isValidUrl(rawAvatarUrl)) {
+            return new Response(
+              JSON.stringify({ error: "Avatar URL must be a valid http/https URL" }),
+              { status: 400, headers: { "Content-Type": "application/json" } },
+            );
+          }
+          if (rawWebsite && !isValidUrl(rawWebsite)) {
+            return new Response(
+              JSON.stringify({ error: "Website must be a valid http/https URL" }),
+              { status: 400, headers: { "Content-Type": "application/json" } },
+            );
+          }
 
           if (newUsername) {
             if (!/^[a-z0-9]([a-z0-9-]{1,37}[a-z0-9])?$/.test(newUsername)) {
@@ -55,18 +70,30 @@ export const Route = createFileRoute("/api/auth/update-profile")({
               );
             }
 
-            // Check availability if changing
-            const { data: existing } = await supabaseAdmin
+            // Check availability if changing - check both profiles and orgs
+            const { data: existingProfiles } = await supabaseAdmin
               .from("profiles")
               .select("id")
               .ilike("username", newUsername)
-              .neq("id", user.id);
+              .neq("id", actor.userId);
 
-            if (existing && existing.length > 0) {
+            if (existingProfiles && existingProfiles.length > 0) {
               return new Response(JSON.stringify({ error: "That username is already taken" }), {
                 status: 400,
                 headers: { "Content-Type": "application/json" },
               });
+            }
+
+            const { data: existingOrgs } = await supabaseAdmin
+              .from("orgs")
+              .select("id")
+              .ilike("slug", newUsername);
+
+            if (existingOrgs && existingOrgs.length > 0) {
+              return new Response(
+                JSON.stringify({ error: "That handle is already taken by an organization" }),
+                { status: 400, headers: { "Content-Type": "application/json" } },
+              );
             }
           }
 
@@ -83,7 +110,7 @@ export const Route = createFileRoute("/api/auth/update-profile")({
           const { data: updated, error: updateError } = await supabaseAdmin
             .from("profiles")
             .update(updatePayload)
-            .eq("id", user.id)
+            .eq("id", actor.userId)
             .select("id, username, display_name, bio, created_at")
             .single();
 
@@ -94,21 +121,23 @@ export const Route = createFileRoute("/api/auth/update-profile")({
             );
           }
 
-          // Update user metadata in Supabase Auth
+          // Fetch user metadata from Supabase Auth to update
+          const { data: userData } = await supabaseAdmin.auth.admin.getUserById(actor.userId);
           const newMetadata: Record<string, any> = {
-            ...(user.user_metadata || {}),
+            ...(userData?.user?.user_metadata || {}),
           };
+
           if (newUsername) newMetadata["username"] = newUsername;
           if (displayName) {
             newMetadata["name"] = displayName;
             newMetadata["full_name"] = displayName;
           }
-          if (avatarUrl !== undefined) newMetadata["avatar_url"] = avatarUrl;
-          if (website !== undefined) newMetadata["website"] = website;
+          if (rawAvatarUrl !== undefined) newMetadata["avatar_url"] = rawAvatarUrl;
+          if (rawWebsite !== undefined) newMetadata["website"] = rawWebsite;
           if (location !== undefined) newMetadata["location"] = location;
           if (pronouns !== undefined) newMetadata["pronouns"] = pronouns;
 
-          await supabaseAdmin.auth.admin.updateUserById(user.id, {
+          await supabaseAdmin.auth.admin.updateUserById(actor.userId, {
             user_metadata: newMetadata,
           });
 

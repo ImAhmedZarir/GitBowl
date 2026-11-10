@@ -2,6 +2,7 @@
 import { createFileRoute } from "@tanstack/react-router";
 import { getSupabaseAdmin } from "@/integrations/supabase/client.server";
 import { logAuditEvent } from "@/lib/audit.server";
+import { getActor } from "@/lib/authz.server";
 
 const json = (data: unknown, status = 200) =>
   new Response(JSON.stringify(data), {
@@ -13,6 +14,9 @@ export const Route = createFileRoute("/api/orgs/teams")({
   server: {
     handlers: {
       GET: async ({ request }) => {
+        const actor = await getActor(request);
+        if (!actor) return json({ error: "Unauthorized" }, 401);
+
         const url = new URL(request.url);
         const orgSlug = url.searchParams.get("orgSlug")?.trim().toLowerCase();
         if (!orgSlug) return json({ error: "orgSlug is required" }, 400);
@@ -26,6 +30,28 @@ export const Route = createFileRoute("/api/orgs/teams")({
 
         if (!org) return json({ error: "Organization not found" }, 404);
 
+        // Verify caller is a member of this organization
+        const { data: membership } = await supabase
+          .from("org_members" as any)
+          .select("role")
+          .eq("org_id", (org as any).id)
+          .eq("user_id", actor.userId)
+          .maybeSingle();
+
+        if (!membership) {
+          return json({ error: "Organization membership required" }, 403);
+        }
+
+        const isOrgAdminOrOwner = ["owner", "admin"].includes((membership as any).role);
+
+        // Fetch caller's team memberships
+        const { data: userTeams } = await supabase
+          .from("team_members" as any)
+          .select("team_id")
+          .eq("user_id", actor.userId);
+
+        const userTeamIds = new Set((userTeams || []).map((t: any) => t.team_id));
+
         const { data: teams, error } = await supabase
           .from("teams" as any)
           .select(
@@ -34,7 +60,14 @@ export const Route = createFileRoute("/api/orgs/teams")({
           .eq("org_id", (org as any).id);
 
         if (error) return json({ error: error.message }, 500);
-        return json({ teams: teams || [] });
+
+        // Filter secret teams: secret teams are only visible to org owner/admin or members of that team
+        const filteredTeams = (teams || []).filter((t: any) => {
+          if (t.privacy !== "secret") return true;
+          return isOrgAdminOrOwner || userTeamIds.has(t.id);
+        });
+
+        return json({ teams: filteredTeams });
       },
 
       POST: async ({ request }) => {

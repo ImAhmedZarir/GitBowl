@@ -1,6 +1,6 @@
 // public/sw.js
-// GitBowl Service Worker for Offline Repository Browsing (Section 5.4)
-const CACHE_NAME = "gitbowl-cache-v1";
+// GitBowl Service Worker - Cache versioned static assets safely without caching private API data
+const CACHE_NAME = "gitbowl-cache-v2";
 const STATIC_ASSETS = ["/", "/explore", "/search", "/favicon.ico"];
 
 self.addEventListener("install", (event) => {
@@ -29,21 +29,40 @@ self.addEventListener("activate", (event) => {
   );
 });
 
+// Clear cache upon logout or explicit cache clear event
+self.addEventListener("message", (event) => {
+  if (event.data && (event.data.action === "LOGOUT" || event.data.action === "CLEAR_CACHE")) {
+    caches.delete(CACHE_NAME).catch(() => {});
+  }
+});
+
 self.addEventListener("fetch", (event) => {
   const url = new URL(event.request.url);
 
-  // Skip non-GET requests and Supabase auth mutation endpoints
+  // Strictly skip non-GET requests
   if (event.request.method !== "GET") return;
-  if (url.pathname.startsWith("/api/auth/") || url.pathname.startsWith("/api/public/git/")) {
+
+  // NEVER cache API endpoints, raw files, or authenticated requests
+  if (
+    url.pathname.startsWith("/api/") ||
+    url.pathname.startsWith("/raw/") ||
+    url.pathname.startsWith("/pages/") ||
+    event.request.headers.has("authorization")
+  ) {
     return;
   }
 
-  // Network-first with cache fallback for repository data and web routes
+  // Network-first with cache fallback for public static pages and assets
   event.respondWith(
     fetch(event.request)
       .then((networkResponse) => {
-        // Cache successful response for offline reading
-        if (networkResponse && networkResponse.status === 200) {
+        // Only cache public 200 OK responses that do not set sensitive cookies
+        if (
+          networkResponse &&
+          networkResponse.status === 200 &&
+          !networkResponse.headers.get("set-cookie") &&
+          !url.pathname.startsWith("/settings")
+        ) {
           const responseToCache = networkResponse.clone();
           caches.open(CACHE_NAME).then((cache) => {
             cache.put(event.request, responseToCache);
@@ -52,15 +71,14 @@ self.addEventListener("fetch", (event) => {
         return networkResponse;
       })
       .catch(async () => {
-        // Offline fallback: serve from cache if available
+        // Offline fallback
         const cachedResponse = await caches.match(event.request);
         if (cachedResponse) {
           return cachedResponse;
         }
 
-        // Return offline fallback page if navigation request
         if (event.request.mode === "navigate") {
-          return caches.match("/");
+          return caches.match("/") || new Response("Offline", { status: 503 });
         }
 
         return new Response("Offline: Content cached when online", {

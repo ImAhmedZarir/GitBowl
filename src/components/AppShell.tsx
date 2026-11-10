@@ -48,6 +48,13 @@ export function AppShell({ children, hideFooter = false }: AppShellProps) {
   const [searchOpen, setSearchOpen] = useState(false);
   const [shortcutsOpen, setShortcutsOpen] = useState(false);
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
+  const [isMac, setIsMac] = useState(false);
+
+  useEffect(() => {
+    if (typeof navigator !== "undefined") {
+      setIsMac(/(Mac|iPhone|iPod|iPad)/i.test(navigator.userAgent || navigator.platform || ""));
+    }
+  }, []);
 
   // Global keyboard shortcuts
   useEffect(() => {
@@ -91,7 +98,7 @@ export function AppShell({ children, hideFooter = false }: AppShellProps) {
   return (
     <div className="flex min-h-screen flex-col bg-background text-foreground antialiased selection:bg-primary/20 selection:text-primary">
       {/* Sticky Top Bar (56px) */}
-      <header className="sticky top-0 z-40 h-14 border-b border-border bg-background/85 backdrop-blur-md transition-colors">
+      <header className="sticky top-0 z-40 h-14 border-b border-border bg-background/85 backdrop-blur-xl shadow-[inset_0_1px_0_0_rgba(255,255,255,0.06)] transition-colors">
         <div className="mx-auto flex h-full max-w-7xl items-center justify-between gap-3 px-4">
           {/* Left section: Logo + Primary Navigation */}
           <div className="flex items-center gap-5">
@@ -99,8 +106,8 @@ export function AppShell({ children, hideFooter = false }: AppShellProps) {
               to="/"
               className="flex items-center gap-2 font-semibold tracking-tight transition-opacity hover:opacity-90"
             >
-              <BowlLogo className="h-6 w-6 text-primary" />
-              <span className="text-base font-bold bg-gradient-to-r from-primary to-success bg-clip-text text-transparent">
+              <BowlLogo className="h-6 w-6 text-foreground" />
+              <span className="text-base font-bold text-foreground tracking-tight">
                 GitBowl
               </span>
             </Link>
@@ -114,14 +121,16 @@ export function AppShell({ children, hideFooter = false }: AppShellProps) {
                 Explore
               </Link>
               <Link
-                to="/explore"
+                to="/pulls"
                 className="rounded-md px-2.5 py-1.5 text-xs font-medium text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
+                activeProps={{ className: "text-foreground bg-accent font-semibold" }}
               >
                 Pull requests
               </Link>
               <Link
-                to="/explore"
+                to="/issues"
                 className="rounded-md px-2.5 py-1.5 text-xs font-medium text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
+                activeProps={{ className: "text-foreground bg-accent font-semibold" }}
               >
                 Issues
               </Link>
@@ -140,7 +149,7 @@ export function AppShell({ children, hideFooter = false }: AppShellProps) {
                 <span className="truncate">Type / to search or jump to...</span>
               </div>
               <kbd className="hidden sm:inline-flex h-5 items-center gap-0.5 rounded border border-border/80 bg-background px-1.5 font-mono text-[10px] font-medium text-muted-foreground">
-                ⌘K
+                {isMac ? "⌘K" : "Ctrl+K"}
               </kbd>
             </button>
           </div>
@@ -307,6 +316,20 @@ export function AppShell({ children, hideFooter = false }: AppShellProps) {
               className="rounded-md px-3 py-2 text-sm font-medium text-foreground hover:bg-accent"
             >
               Explore Repositories
+            </Link>
+            <Link
+              to="/pulls"
+              onClick={() => setMobileMenuOpen(false)}
+              className="rounded-md px-3 py-2 text-sm font-medium text-foreground hover:bg-accent"
+            >
+              Pull Requests
+            </Link>
+            <Link
+              to="/issues"
+              onClick={() => setMobileMenuOpen(false)}
+              className="rounded-md px-3 py-2 text-sm font-medium text-foreground hover:bg-accent"
+            >
+              Issues
             </Link>
             {user ? (
               <>

@@ -17,6 +17,14 @@ import {
   RefreshCw,
 } from "lucide-react";
 import { supabase } from "@/integrations/supabase/client";
+import {
+  firebaseAuth,
+  googleProvider,
+  githubProvider,
+  signInWithPopup,
+  GithubAuthProvider,
+  linkWithCredential,
+} from "@/lib/firebase";
 import { useAuth } from "@/lib/auth";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -94,45 +102,10 @@ function AuthPage() {
   const { user } = useAuth();
 
   useEffect(() => {
-    let cancelled = false;
-    async function checkUserOnboarding() {
-      if (!user) return;
-      if (onboardingData) return;
-
-      const { data: profile } = await (supabase.from("profiles") as any)
-        .select("id, username, display_name, onboarding_completed")
-        .eq("id", user.id)
-        .maybeSingle();
-
-      if (cancelled) return;
-
-      if (profile && profile.onboarding_completed === false) {
-        setOnboardingData({
-          userId: user.id,
-          email: user.email || "",
-          displayName: profile.display_name || user.user_metadata?.["full_name"] || "",
-          initialUsername: profile.username || "",
-          redirectUrl: search.redirect || "/",
-        });
-        setChosenUsername(profile.username || "");
-        setChosenDisplayName(profile.display_name || user.user_metadata?.["full_name"] || "");
-      } else if (profile && profile.onboarding_completed) {
-        navigate({ to: search.redirect || "/", replace: true });
-      } else if (!profile) {
-        setOnboardingData({
-          userId: user.id,
-          email: user.email || "",
-          displayName: user.user_metadata?.["full_name"] || "",
-          initialUsername: "",
-          redirectUrl: search.redirect || "/",
-        });
-      }
+    if (user && !onboardingData) {
+      navigate({ to: search.redirect || "/", replace: true });
     }
-    void checkUserOnboarding();
-    return () => {
-      cancelled = true;
-    };
-  }, [user, onboardingData, search.redirect, navigate]);
+  }, [user, navigate, search.redirect, onboardingData]);
 
   // Live validation for chosen onboarding username
   useEffect(() => {
@@ -193,14 +166,11 @@ function AuthPage() {
 
     setCompletingOnboarding(true);
     try {
-      const session = (await supabase.auth.getSession()).data.session;
       const res = await fetch("/api/auth/complete-onboarding", {
         method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          ...(session?.access_token ? { Authorization: `Bearer ${session.access_token}` } : {}),
-        },
+        headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
+          userId: onboardingData.userId,
           username: cleanUser,
           displayName: chosenDisplayName.trim() || cleanUser,
         }),
@@ -311,19 +281,63 @@ function AuthPage() {
     setBusy(true);
     setErrorMessage(null);
     try {
-      const origin = typeof window !== "undefined" ? window.location.origin : "";
-      const redirectTarget = search.redirect || "/";
-      const { error } = await supabase.auth.signInWithOAuth({
-        provider: "google",
-        options: {
-          redirectTo: `${origin}/auth/callback?redirect=${encodeURIComponent(redirectTarget)}`,
-        },
+      const res = await signInWithPopup(firebaseAuth, googleProvider);
+      const fbUser = res.user;
+
+      if (!fbUser.email) {
+        throw new Error("Google account did not provide an email address.");
+      }
+
+      // Sync user with backend to establish Supabase session
+      const syncRes = await fetch("/api/auth/google-sync", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          email: fbUser.email,
+          displayName: fbUser.displayName || fbUser.email.split("@")[0],
+          photoURL: fbUser.photoURL,
+        }),
       });
-      if (error) throw error;
-    } catch (err: unknown) {
+
+      const syncData = await syncRes.json();
+      if (!syncRes.ok || syncData.error) {
+        throw new Error(syncData.error || "Failed to establish server session");
+      }
+
+      // Complete session establishment in Supabase client
+      if (syncData.hashed_token) {
+        const { error: otpError } = await supabase.auth.verifyOtp({
+          token_hash: syncData.hashed_token,
+          type: "magiclink",
+        });
+        if (otpError) throw otpError;
+      }
+
+      if (syncData.isNewUser) {
+        setOnboardingData({
+          userId: syncData.userId,
+          email: fbUser.email,
+          displayName: syncData.displayName || fbUser.displayName || "",
+          initialUsername: syncData.suggestedUsername || "",
+          redirectUrl: search.redirect || "/",
+        });
+        setChosenUsername(syncData.suggestedUsername || "");
+        setChosenDisplayName(syncData.displayName || fbUser.displayName || "");
+        toast.info("Welcome to GitBowl! Choose your developer handle to complete setup.");
+        return;
+      }
+
+      toast.success(`Welcome back to GitBowl, ${fbUser.displayName || fbUser.email}!`);
+      navigate({ to: search.redirect || "/" });
+    } catch (err: any) {
+      if (err.code === "auth/popup-closed-by-user" || err.code === "auth/cancelled-popup-request") {
+        setBusy(false);
+        return;
+      }
       const msg = err instanceof Error ? err.message : "Failed to sign in with Google";
       setErrorMessage(msg);
       toast.error(msg);
+    } finally {
       setBusy(false);
     }
   }
@@ -332,20 +346,133 @@ function AuthPage() {
     setBusy(true);
     setErrorMessage(null);
     try {
-      const origin = typeof window !== "undefined" ? window.location.origin : "";
-      const redirectTarget = search.redirect || "/new?tab=import";
-      const { error } = await supabase.auth.signInWithOAuth({
-        provider: "github",
-        options: {
-          redirectTo: `${origin}/auth/callback?redirect=${encodeURIComponent(redirectTarget)}`,
-          scopes: "read:user user:email",
-        },
+      const res = await signInWithPopup(firebaseAuth, githubProvider);
+      const fbUser = res.user;
+      const credential = GithubAuthProvider.credentialFromResult(res);
+      const ghAccessToken = credential?.accessToken || null;
+
+      if (ghAccessToken) {
+        localStorage.setItem("gitbowl_github_token", ghAccessToken);
+      }
+
+      const syncRes = await fetch("/api/auth/github-sync", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          email: fbUser.email,
+          displayName: fbUser.displayName || fbUser.email?.split("@")[0] || "developer",
+          photoURL: fbUser.photoURL,
+          githubToken: ghAccessToken,
+        }),
       });
-      if (error) throw error;
-    } catch (err: unknown) {
+
+      const syncData = await syncRes.json();
+      if (!syncRes.ok || syncData.error) {
+        throw new Error(syncData.error || "Failed to establish server session");
+      }
+
+      if (syncData.hashed_token) {
+        const { error: otpError } = await supabase.auth.verifyOtp({
+          token_hash: syncData.hashed_token,
+          type: "magiclink",
+        });
+        if (otpError) throw otpError;
+      }
+
+      if (syncData.isNewUser) {
+        setOnboardingData({
+          userId: syncData.userId,
+          email: fbUser.email || "",
+          displayName: syncData.displayName || fbUser.displayName || "developer",
+          initialUsername: syncData.suggestedUsername || "",
+          redirectUrl: search.redirect || "/new?tab=import",
+        });
+        setChosenUsername(syncData.suggestedUsername || "");
+        setChosenDisplayName(syncData.displayName || fbUser.displayName || "developer");
+        toast.info("Welcome to GitBowl! Choose your developer handle to complete setup.");
+        return;
+      }
+
+      toast.success(`Signed in with GitHub! Welcome, ${fbUser.displayName || "developer"}!`);
+      navigate({ to: search.redirect || "/new?tab=import" });
+    } catch (err: any) {
+      if (err.code === "auth/popup-closed-by-user" || err.code === "auth/cancelled-popup-request") {
+        setBusy(false);
+        return;
+      }
+
+      if (err.code === "auth/account-exists-with-different-credential") {
+        const conflictEmail = err.customData?.email || err.email;
+        const pendingCred = GithubAuthProvider.credentialFromError(err);
+        const ghAccessToken = pendingCred?.accessToken || null;
+
+        if (ghAccessToken) {
+          localStorage.setItem("gitbowl_github_token", ghAccessToken);
+        }
+
+        toast.info(
+          `An account already exists for ${conflictEmail || "this email"}. Sign in with your existing provider to link GitHub.`,
+        );
+
+        try {
+          // Attempt prompt to sign in with Google to link credentials
+          const googleRes = await signInWithPopup(firebaseAuth, googleProvider);
+          if (pendingCred) {
+            try {
+              await linkWithCredential(googleRes.user, pendingCred);
+              toast.success("GitHub account successfully linked!");
+            } catch (linkErr: any) {
+              console.warn("Credential link notice:", linkErr);
+            }
+          }
+
+          const fbUser = googleRes.user;
+          const syncRes = await fetch("/api/auth/github-sync", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              email: fbUser.email,
+              displayName: fbUser.displayName || fbUser.email?.split("@")[0] || "developer",
+              photoURL: fbUser.photoURL,
+              githubToken: ghAccessToken,
+            }),
+          });
+
+          const syncData = await syncRes.json();
+          if (!syncRes.ok || syncData.error) {
+            throw new Error(syncData.error || "Failed to establish server session");
+          }
+
+          if (syncData.hashed_token) {
+            const { error: otpError } = await supabase.auth.verifyOtp({
+              token_hash: syncData.hashed_token,
+              type: "magiclink",
+            });
+            if (otpError) throw otpError;
+          }
+
+          toast.success(`Welcome to GitBowl, ${fbUser.displayName || "developer"}!`);
+          navigate({ to: search.redirect || "/new?tab=import" });
+          return;
+        } catch (linkPopupErr: any) {
+          if (
+            linkPopupErr.code === "auth/popup-closed-by-user" ||
+            linkPopupErr.code === "auth/cancelled-popup-request"
+          ) {
+            setBusy(false);
+            return;
+          }
+          const promptMsg = `An account already exists with ${conflictEmail}. Please sign in with Google or Email first to link your GitHub account.`;
+          setErrorMessage(promptMsg);
+          toast.error(promptMsg);
+          return;
+        }
+      }
+
       const msg = err instanceof Error ? err.message : "Failed to sign in with GitHub";
       setErrorMessage(msg);
       toast.error(msg);
+    } finally {
       setBusy(false);
     }
   }

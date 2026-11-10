@@ -80,17 +80,17 @@ export function RepoCard({ repo, owner }: { repo: RepoRow; owner?: string }) {
   }
 
   return (
-    <div className="flex flex-col justify-between rounded-lg border border-border/80 bg-card p-4 transition-all duration-150 hover:border-border hover:shadow-xs">
+    <div className="flex flex-col justify-between rounded-xl border border-border bg-card p-4 shadow-xs transition-all duration-150 hover:border-foreground/30 hover:shadow-sm">
       <div>
         <div className="flex items-start justify-between gap-2">
           <Link
             to="/$owner/$repo"
             params={{ owner: ownerName, repo: repo.name }}
-            className="text-sm font-semibold text-primary hover:underline truncate"
+            className="text-sm font-semibold text-foreground hover:underline truncate"
           >
             {owner ? repo.name : `${ownerName}/${repo.name}`}
           </Link>
-          <span className="inline-flex shrink-0 items-center gap-1 rounded-full border border-border/80 bg-muted/40 px-2 py-0.5 text-[11px] font-medium text-muted-foreground">
+          <span className="inline-flex shrink-0 items-center gap-1 rounded-full border border-border bg-muted/60 px-2 py-0.5 text-[11px] font-medium text-muted-foreground">
             {isPrivate ? (
               <>
                 <Lock className="h-3 w-3" /> Private
@@ -113,7 +113,7 @@ export function RepoCard({ repo, owner }: { repo: RepoRow; owner?: string }) {
               className="h-2.5 w-2.5 rounded-full"
               style={{ backgroundColor: langColor || "#3178c6" }}
             />
-            <span>{lang}</span>
+            <span className="text-foreground font-medium">{lang}</span>
           </span>
         )}
 
@@ -129,7 +129,7 @@ export function RepoCard({ repo, owner }: { repo: RepoRow; owner?: string }) {
           </span>
         )}
 
-        <span className="ml-auto">Updated {formatDate(rawDate)}</span>
+        <span className="ml-auto text-muted-foreground">Updated {formatDate(rawDate)}</span>
       </div>
     </div>
   );

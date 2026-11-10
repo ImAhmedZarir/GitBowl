@@ -20,17 +20,14 @@ export function sanitizeUnicode(str: string | null | undefined): string {
   // 1. Remove raw NUL characters (\0 or \u0000 character)
   let clean = str.replace(/\0/g, "");
 
-  // 2. Remove escaped Unicode null sequences (\u0000, \U0000, \x00) that crash Postgres JSON/text
-  clean = clean.replace(/\\u0000|\\U0000|\\x00/gi, "");
-
-  // 3. Remove unpaired UTF-16 surrogate code points
+  // 2. Remove unpaired UTF-16 surrogate code points
   // High surrogate not followed by low surrogate OR low surrogate without high surrogate
   clean = clean.replace(
     /[\uD800-\uDBFF](?![\uDC00-\uDFFF])|(?<![\uD800-\uDBFF])[\uDC00-\uDFFF]/g,
     "",
   );
 
-  // 4. Normalize Unicode using NFC (Canonical Decomposition, followed by Canonical Composition)
+  // 3. Normalize Unicode using NFC (Canonical Decomposition, followed by Canonical Composition)
   try {
     clean = clean.normalize("NFC");
   } catch {
@@ -41,12 +38,12 @@ export function sanitizeUnicode(str: string | null | undefined): string {
 }
 
 /**
- * Checks if a string or buffer contains NUL byte (\0) or escaped \u0000.
+ * Checks if a string or buffer contains NUL byte (\0).
  */
 export function containsNullByte(input: string | Uint8Array | Buffer | null | undefined): boolean {
   if (!input) return false;
   if (typeof input === "string") {
-    return input.includes("\0") || /\0/.test(input) || /\\u0000|\\U0000|\\x00/i.test(input);
+    return input.includes("\0") || /\0/.test(input);
   }
   if (input instanceof Uint8Array || (typeof Buffer !== "undefined" && Buffer.isBuffer(input))) {
     for (let i = 0; i < input.length; i++) {
@@ -66,6 +63,9 @@ export function sanitizeFilePath(rawPath: string | null | undefined): string {
   p = p.replace(/\\/g, "/");
   // Remove leading slashes and redundant consecutive slashes
   p = p.replace(/^\/+/, "").replace(/\/+/g, "/");
+  // Prevent directory traversal attacks: resolve and eliminate ".." and "." segments
+  const segments = p.split("/").filter((s) => s && s !== "." && s !== "..");
+  p = segments.join("/");
   // Remove any remaining null or control characters
   // eslint-disable-next-line no-control-regex
   p = p.replace(/[\x00-\x1F\x7F]/g, "");

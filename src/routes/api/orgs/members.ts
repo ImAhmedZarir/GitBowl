@@ -2,17 +2,26 @@
 import { createFileRoute } from "@tanstack/react-router";
 import { getSupabaseAdmin } from "@/integrations/supabase/client.server";
 import { logAuditEvent } from "@/lib/audit.server";
+import { getActor } from "@/lib/authz.server";
+
+const VALID_ROLES = ["owner", "admin", "member", "billing"];
 
 const json = (data: unknown, status = 200) =>
   new Response(JSON.stringify(data), {
     status,
-    headers: { "Content-Type": "application/json" },
+    headers: {
+      "Content-Type": "application/json",
+      "Cache-Control": "private, no-store",
+    },
   });
 
 export const Route = createFileRoute("/api/orgs/members")({
   server: {
     handlers: {
       GET: async ({ request }) => {
+        const actor = await getActor(request);
+        if (!actor) return json({ error: "Unauthorized" }, 401);
+
         const url = new URL(request.url);
         const orgSlug = url.searchParams.get("orgSlug")?.trim().toLowerCase();
         if (!orgSlug) return json({ error: "orgSlug is required" }, 400);
@@ -26,6 +35,18 @@ export const Route = createFileRoute("/api/orgs/members")({
 
         if (!org) return json({ error: "Organization not found" }, 404);
 
+        // Verify membership
+        const { data: requesterMember } = await supabase
+          .from("org_members" as any)
+          .select("role")
+          .eq("org_id", (org as any).id)
+          .eq("user_id", actor.userId)
+          .maybeSingle();
+
+        if (!requesterMember) {
+          return json({ error: "Organization membership required" }, 403);
+        }
+
         const { data: members, error } = await supabase
           .from("org_members" as any)
           .select("id, role, created_at, user:user_id (id, username, display_name, avatar_url)")
@@ -36,23 +57,26 @@ export const Route = createFileRoute("/api/orgs/members")({
       },
 
       POST: async ({ request }) => {
-        const authHeader = request.headers.get("authorization");
-        if (!authHeader?.startsWith("Bearer ")) return json({ error: "Unauthorized" }, 401);
-        const token = authHeader.slice(7);
-
-        const supabase = getSupabaseAdmin();
-        const { data: userData, error: authError } = await supabase.auth.getUser(token);
-        if (authError || !userData.user) return json({ error: "Unauthorized" }, 401);
+        const actor = await getActor(request);
+        if (!actor) return json({ error: "Unauthorized" }, 401);
 
         const body = await request.json().catch(() => ({}));
         const orgSlug = body.orgSlug?.trim().toLowerCase();
         const targetUsername = body.username?.trim();
-        const role = body.role || "member";
+        const role = (body.role || "member").toLowerCase();
 
         if (!orgSlug || !targetUsername) {
           return json({ error: "orgSlug and username are required" }, 400);
         }
 
+        if (!VALID_ROLES.includes(role)) {
+          return json(
+            { error: `Invalid role. Permitted roles are: ${VALID_ROLES.join(", ")}` },
+            400,
+          );
+        }
+
+        const supabase = getSupabaseAdmin();
         const { data: org } = await supabase
           .from("orgs" as any)
           .select("id, name, slug")
@@ -61,16 +85,21 @@ export const Route = createFileRoute("/api/orgs/members")({
 
         if (!org) return json({ error: "Organization not found" }, 404);
 
-        // Check if requester is owner/admin
+        // Check requester's role
         const { data: requesterMember } = await supabase
           .from("org_members" as any)
           .select("role")
           .eq("org_id", (org as any).id)
-          .eq("user_id", userData.user.id)
+          .eq("user_id", actor.userId)
           .maybeSingle();
 
         if (!requesterMember || !["owner", "admin"].includes((requesterMember as any).role)) {
           return json({ error: "Only org owners and admins can add members" }, 403);
+        }
+
+        // Privilege escalation defense: Only owners can create or promote owners
+        if (role === "owner" && (requesterMember as any).role !== "owner") {
+          return json({ error: "Only existing organization owners can grant the owner role" }, 403);
         }
 
         // Find user by username
@@ -103,7 +132,7 @@ export const Route = createFileRoute("/api/orgs/members")({
         // Audit log
         await logAuditEvent({
           orgId: (org as any).id,
-          actorId: userData.user.id,
+          actorId: actor.userId,
           action: "org.member_add",
           targetType: "user",
           targetId: targetProfile.id,
@@ -115,17 +144,21 @@ export const Route = createFileRoute("/api/orgs/members")({
       },
 
       PATCH: async ({ request }) => {
-        const authHeader = request.headers.get("authorization");
-        if (!authHeader?.startsWith("Bearer ")) return json({ error: "Unauthorized" }, 401);
-        const token = authHeader.slice(7);
-
-        const supabase = getSupabaseAdmin();
-        const { data: userData } = await supabase.auth.getUser(token);
-        if (!userData?.user) return json({ error: "Unauthorized" }, 401);
+        const actor = await getActor(request);
+        if (!actor) return json({ error: "Unauthorized" }, 401);
 
         const body = await request.json().catch(() => ({}));
-        const { orgSlug, userId, role } = body;
+        const { orgSlug, userId, role: newRoleRaw } = body;
+        const role = (newRoleRaw || "").toLowerCase();
 
+        if (!VALID_ROLES.includes(role)) {
+          return json(
+            { error: `Invalid role. Permitted roles are: ${VALID_ROLES.join(", ")}` },
+            400,
+          );
+        }
+
+        const supabase = getSupabaseAdmin();
         const { data: org } = await supabase
           .from("orgs" as any)
           .select("id")
@@ -139,11 +172,36 @@ export const Route = createFileRoute("/api/orgs/members")({
           .from("org_members" as any)
           .select("role")
           .eq("org_id", (org as any).id)
-          .eq("user_id", userData.user.id)
+          .eq("user_id", actor.userId)
           .maybeSingle();
 
         if (!requester || (requester as any).role !== "owner") {
           return json({ error: "Only owners can change member roles" }, 403);
+        }
+
+        // Target user current role
+        const { data: targetMember } = await supabase
+          .from("org_members" as any)
+          .select("role")
+          .eq("org_id", (org as any).id)
+          .eq("user_id", userId)
+          .maybeSingle();
+
+        if (!targetMember) {
+          return json({ error: "Target member not found" }, 404);
+        }
+
+        // Guard: Block demoting the last owner
+        if ((targetMember as any).role === "owner" && role !== "owner") {
+          const { count } = await supabase
+            .from("org_members" as any)
+            .select("id", { count: "exact", head: true })
+            .eq("org_id", (org as any).id)
+            .eq("role", "owner");
+
+          if (count !== null && count <= 1) {
+            return json({ error: "Cannot demote the last owner of the organization" }, 400);
+          }
         }
 
         await supabase
@@ -154,7 +212,7 @@ export const Route = createFileRoute("/api/orgs/members")({
 
         await logAuditEvent({
           orgId: (org as any).id,
-          actorId: userData.user.id,
+          actorId: actor.userId,
           action: "org.role_change",
           targetType: "user",
           targetId: userId,
@@ -166,13 +224,8 @@ export const Route = createFileRoute("/api/orgs/members")({
       },
 
       DELETE: async ({ request }) => {
-        const authHeader = request.headers.get("authorization");
-        if (!authHeader?.startsWith("Bearer ")) return json({ error: "Unauthorized" }, 401);
-        const token = authHeader.slice(7);
-
-        const supabase = getSupabaseAdmin();
-        const { data: userData } = await supabase.auth.getUser(token);
-        if (!userData?.user) return json({ error: "Unauthorized" }, 401);
+        const actor = await getActor(request);
+        if (!actor) return json({ error: "Unauthorized" }, 401);
 
         const url = new URL(request.url);
         const orgSlug = url.searchParams.get("orgSlug");
@@ -180,6 +233,7 @@ export const Route = createFileRoute("/api/orgs/members")({
 
         if (!orgSlug || !userId) return json({ error: "Missing parameters" }, 400);
 
+        const supabase = getSupabaseAdmin();
         const { data: org } = await supabase
           .from("orgs" as any)
           .select("id")
@@ -188,17 +242,45 @@ export const Route = createFileRoute("/api/orgs/members")({
 
         if (!org) return json({ error: "Organization not found" }, 404);
 
+        // Target user current membership
+        const { data: targetMember } = await supabase
+          .from("org_members" as any)
+          .select("role")
+          .eq("org_id", (org as any).id)
+          .eq("user_id", userId)
+          .maybeSingle();
+
+        if (!targetMember) return json({ error: "Member not found" }, 404);
+
         // Verify requester permissions (or self-removal)
-        if (userData.user.id !== userId) {
+        if (actor.userId !== userId) {
           const { data: requester } = await supabase
             .from("org_members" as any)
             .select("role")
             .eq("org_id", (org as any).id)
-            .eq("user_id", userData.user.id)
+            .eq("user_id", actor.userId)
             .maybeSingle();
 
           if (!requester || !["owner", "admin"].includes((requester as any).role)) {
             return json({ error: "Forbidden" }, 403);
+          }
+
+          // Admins CANNOT delete owners
+          if ((targetMember as any).role === "owner" && (requester as any).role !== "owner") {
+            return json({ error: "Organization admins cannot remove an owner" }, 403);
+          }
+        }
+
+        // Guard: Block removing the last owner
+        if ((targetMember as any).role === "owner") {
+          const { count } = await supabase
+            .from("org_members" as any)
+            .select("id", { count: "exact", head: true })
+            .eq("org_id", (org as any).id)
+            .eq("role", "owner");
+
+          if (count !== null && count <= 1) {
+            return json({ error: "Cannot remove the last owner of the organization" }, 400);
           }
         }
 
@@ -210,7 +292,7 @@ export const Route = createFileRoute("/api/orgs/members")({
 
         await logAuditEvent({
           orgId: (org as any).id,
-          actorId: userData.user.id,
+          actorId: actor.userId,
           action: "org.member_remove",
           targetType: "user",
           targetId: userId,

@@ -1,6 +1,7 @@
 // src/routes/api/repo/pulls.ts
 import { createFileRoute } from "@tanstack/react-router";
 import { getSupabaseAdmin } from "@/integrations/supabase/client.server";
+import { getActor, requireRepoAccess } from "@/lib/authz.server";
 
 export const Route = createFileRoute("/api/repo/pulls")({
   server: {
@@ -19,6 +20,28 @@ export const Route = createFileRoute("/api/repo/pulls")({
           }
 
           const supabase = getSupabaseAdmin();
+          const { data: repo, error: repoErr } = await supabase
+            .from("repositories")
+            .select("id, is_private, owner_id, org_id")
+            .eq("id", repoId)
+            .maybeSingle();
+
+          if (repoErr || !repo) {
+            return new Response(JSON.stringify({ error: "Repository not found" }), {
+              status: 404,
+              headers: { "Content-Type": "application/json" },
+            });
+          }
+
+          const actor = await getActor(request);
+          const access = await requireRepoAccess(actor, repo, "read");
+          if (!access.allowed) {
+            return new Response(JSON.stringify({ error: "Access denied" }), {
+              status: access.status || 404,
+              headers: { "Content-Type": "application/json" },
+            });
+          }
+
           let query = supabase
             .from("pull_requests" as any)
             .select(
@@ -34,9 +57,13 @@ export const Route = createFileRoute("/api/repo/pulls")({
           const { data: prs, error } = await query;
           if (error) throw error;
 
+          const isPrivate = Boolean(repo.is_private);
           return new Response(JSON.stringify({ pullRequests: prs ?? [] }), {
             status: 200,
-            headers: { "Content-Type": "application/json" },
+            headers: {
+              "Content-Type": "application/json",
+              "Cache-Control": isPrivate ? "private, no-store" : "public, max-age=30",
+            },
           });
         } catch (err: any) {
           return new Response(
@@ -51,25 +78,14 @@ export const Route = createFileRoute("/api/repo/pulls")({
 
       POST: async ({ request }) => {
         try {
-          const authHeader = request.headers.get("authorization");
-          if (!authHeader) {
+          const actor = await getActor(request);
+          if (!actor) {
             return new Response(JSON.stringify({ error: "Authentication required" }), {
               status: 401,
               headers: { "Content-Type": "application/json" },
             });
           }
 
-          const supabase = getSupabaseAdmin();
-          const token = authHeader.replace(/^Bearer\s+/i, "").trim();
-          const { data: userData, error: authError } = await supabase.auth.getUser(token);
-          if (authError || !userData?.user) {
-            return new Response(JSON.stringify({ error: "Invalid token" }), {
-              status: 401,
-              headers: { "Content-Type": "application/json" },
-            });
-          }
-
-          const user = userData.user;
           const body = await request.json().catch(() => ({}));
           const {
             repoId,
@@ -87,14 +103,56 @@ export const Route = createFileRoute("/api/repo/pulls")({
             });
           }
 
-          // Fetch next PR number
+          const supabase = getSupabaseAdmin();
+          const { data: repo, error: repoErr } = await supabase
+            .from("repositories")
+            .select("id, is_private, owner_id, org_id")
+            .eq("id", repoId)
+            .maybeSingle();
+
+          if (repoErr || !repo) {
+            return new Response(JSON.stringify({ error: "Repository not found" }), {
+              status: 404,
+              headers: { "Content-Type": "application/json" },
+            });
+          }
+
+          // Must have read access to target repository
+          const targetAccess = await requireRepoAccess(actor, repo, "read");
+          if (!targetAccess.allowed) {
+            return new Response(JSON.stringify({ error: "Target repository not found or access denied" }), {
+              status: targetAccess.status || 404,
+              headers: { "Content-Type": "application/json" },
+            });
+          }
+
+          // If source repository is specified and different, check read access on source repository
+          if (sourceRepoId && sourceRepoId !== repoId) {
+            const { data: sourceRepo } = await supabase
+              .from("repositories")
+              .select("id, is_private, owner_id, org_id")
+              .eq("id", sourceRepoId)
+              .maybeSingle();
+
+            if (sourceRepo) {
+              const srcAccess = await requireRepoAccess(actor, sourceRepo, "read");
+              if (!srcAccess.allowed) {
+                return new Response(JSON.stringify({ error: "Source repository access denied" }), {
+                  status: srcAccess.status || 404,
+                  headers: { "Content-Type": "application/json" },
+                });
+              }
+            }
+          }
+
+          // Fetch next PR number atomically
           const { data: latestPr } = await supabase
             .from("pull_requests" as any)
             .select("number")
             .eq("repo_id", repoId)
             .order("number", { ascending: false })
             .limit(1)
-            .single();
+            .maybeSingle();
 
           const nextNumber = ((latestPr as any)?.number || 0) + 1;
 
@@ -106,10 +164,10 @@ export const Route = createFileRoute("/api/repo/pulls")({
               title: title.trim(),
               body: (prBody || "").trim(),
               state: "open",
-              source_branch: sourceBranch,
-              target_branch: targetBranch,
+              source_branch: sourceBranch.trim(),
+              target_branch: (targetBranch || "main").trim(),
               source_repo_id: sourceRepoId || repoId,
-              author_id: user.id,
+              author_id: actor.userId,
             } as any)
             .select("id, number, title, state, created_at")
             .single();

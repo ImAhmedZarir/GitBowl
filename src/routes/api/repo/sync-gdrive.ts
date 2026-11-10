@@ -2,7 +2,7 @@
 // On-demand Google Drive synchronization for repositories
 import { createFileRoute } from "@tanstack/react-router";
 import { getSupabaseAdmin } from "@/integrations/supabase/client.server";
-import { syncFilesToGoogleDrive } from "@/lib/gdrive.server";
+import { syncFilesToGoogleDrive, isGDriveConfigured } from "@/lib/gdrive.server";
 import { createNotification } from "@/lib/notifications.server";
 
 export const Route = createFileRoute("/api/repo/sync-gdrive")({
@@ -10,6 +10,17 @@ export const Route = createFileRoute("/api/repo/sync-gdrive")({
     handlers: {
       POST: async ({ request }) => {
         try {
+          if (!isGDriveConfigured()) {
+            return new Response(
+              JSON.stringify({
+                error:
+                  "Google Drive is not configured on this instance. Please set GDRIVE_CLIENT_EMAIL, GDRIVE_PRIVATE_KEY, and GDRIVE_ROOT_FOLDER_ID in server environment.",
+                configured: false,
+              }),
+              { status: 503, headers: { "Content-Type": "application/json" } },
+            );
+          }
+
           const authHeader = request.headers.get("authorization");
           if (!authHeader?.startsWith("Bearer ")) {
             return new Response(JSON.stringify({ error: "Authentication required" }), {
