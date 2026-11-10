@@ -1,6 +1,15 @@
 import { createContext, useContext, useEffect, useState, type ReactNode } from "react";
-import type { Session, User } from "@supabase/supabase-js";
-import { supabase } from "@/integrations/supabase/client";
+import { 
+  type User, 
+  onAuthStateChanged,
+  signOut as fbSignOutCore
+} from "firebase/auth";
+import { 
+  firebaseAuth, 
+  googleProvider, 
+  githubProvider, 
+  signInWithPopup 
+} from "@/lib/firebase";
 
 export type Profile = {
   id: string;
@@ -14,58 +23,97 @@ export type Profile = {
 
 type AuthContextValue = {
   user: User | null;
-  session: Session | null;
   profile: Profile | null;
   loading: boolean;
+  signInWithGoogle: () => Promise<void>;
+  signInWithGithub: () => Promise<void>;
+  signOut: () => Promise<void>;
   refreshProfile: () => Promise<void>;
 };
 
 const AuthContext = createContext<AuthContextValue>({
   user: null,
-  session: null,
   profile: null,
   loading: true,
+  signInWithGoogle: async () => {},
+  signInWithGithub: async () => {},
+  signOut: async () => {},
   refreshProfile: async () => {},
 });
 
 export function AuthProvider({ children }: { children: ReactNode }) {
-  const [session, setSession] = useState<Session | null>(null);
+  const [user, setUser] = useState<User | null>(null);
   const [profile, setProfile] = useState<Profile | null>(null);
   const [loading, setLoading] = useState(true);
 
-  async function loadProfile(userId: string | undefined) {
-    if (!userId) {
+  // Firebase Auth ইউজার ডেটা থেকে প্রোফাইল স্টেট সেট করা
+  async function loadProfile(currentUser: User | null | undefined) {
+    if (!currentUser) {
       setProfile(null);
       return;
     }
-    const { data } = await supabase.from("profiles").select("*").eq("id", userId).maybeSingle();
-    setProfile((data as Profile) ?? null);
+
+    setProfile({
+      id: currentUser.uid,
+      username: currentUser.email?.split("@")[0] || currentUser.displayName || "user",
+      display_name: currentUser.displayName ?? null,
+      bio: null,
+      role: "user",
+      is_suspended: false,
+      created_at: currentUser.metadata.creationTime || new Date().toISOString(),
+    });
   }
 
   useEffect(() => {
-    const { data: sub } = supabase.auth.onAuthStateChange((_event, nextSession) => {
-      setSession(nextSession);
+    // Firebase Auth স্টেট পরিবর্তনের লিসেনার
+    const unsubscribe = onAuthStateChanged(firebaseAuth, (currentUser) => {
+      setUser(currentUser);
+      void loadProfile(currentUser);
       setLoading(false);
-      setTimeout(() => void loadProfile(nextSession?.user?.id), 0);
     });
 
-    void supabase.auth.getSession().then(({ data }) => {
-      setSession(data.session);
-      setLoading(false);
-      void loadProfile(data.session?.user?.id);
-    });
-
-    return () => sub.subscription.unsubscribe();
+    return () => unsubscribe();
   }, []);
+
+  const signInWithGoogle = async () => {
+    try {
+      await signInWithPopup(firebaseAuth, googleProvider);
+    } catch (error) {
+      console.error("Google sign in error:", error);
+      throw error;
+    }
+  };
+
+  const signInWithGithub = async () => {
+    try {
+      await signInWithPopup(firebaseAuth, githubProvider);
+    } catch (error) {
+      console.error("GitHub sign in error:", error);
+      throw error;
+    }
+  };
+
+  const signOut = async () => {
+    try {
+      await fbSignOutCore(firebaseAuth);
+      setUser(null);
+      setProfile(null);
+    } catch (error) {
+      console.error("Sign out error:", error);
+      throw error;
+    }
+  };
 
   return (
     <AuthContext.Provider
       value={{
-        user: session?.user ?? null,
-        session,
+        user,
         profile,
         loading,
-        refreshProfile: () => loadProfile(session?.user?.id),
+        signInWithGoogle,
+        signInWithGithub,
+        signOut,
+        refreshProfile: () => loadProfile(user),
       }}
     >
       {children}
