@@ -14,9 +14,12 @@ console.log("=== GitBowl Part A Acceptance Tests: Security Hotfix ===");
 console.log("\n[Test 1] Verifying Admin Identity & Privilege Escalation Protection...");
 
 // 1.1 Whitelist test
-assert.equal(isWhitelistedAdminEmail("ahmedzarir07@gmail.com"), true);
-assert.equal(isWhitelistedAdminEmail("AHMEDZARIR07@GMAIL.COM"), true);
+process.env.ADMIN_EMAILS = "admin@example.com";
+assert.equal(isWhitelistedAdminEmail("admin@example.com"), true);
+assert.equal(isWhitelistedAdminEmail("ADMIN@EXAMPLE.COM"), true);
 assert.equal(isWhitelistedAdminEmail("attacker@evil.com"), false);
+delete process.env.ADMIN_EMAILS;
+assert.equal(isWhitelistedAdminEmail("admin@example.com"), false);
 assert.equal(isWhitelistedAdminEmail(""), false);
 assert.equal(isWhitelistedAdminEmail(null), false);
 

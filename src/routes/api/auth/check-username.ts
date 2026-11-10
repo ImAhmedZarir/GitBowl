@@ -1,6 +1,9 @@
+// src/routes/api/auth/check-username.ts
+// Secure endpoint to check username availability against validation rules, reserved handles, and existing profiles/orgs.
 import { createFileRoute } from "@tanstack/react-router";
 import { supabaseAdmin } from "@/integrations/supabase/client.server";
-import { isReservedUsername } from "@/lib/reserved-usernames";
+import { validateUsername, normalizeUsername } from "@/lib/username";
+import { json, error } from "@/lib/http.server";
 
 export const Route = createFileRoute("/api/auth/check-username")({
   server: {
@@ -10,120 +13,70 @@ export const Route = createFileRoute("/api/auth/check-username")({
           const url = new URL(request.url);
           const raw = url.searchParams.get("username") || "";
           const excludeUserId = url.searchParams.get("excludeUserId") || "";
-          const username = raw.trim().toLowerCase();
+          const username = normalizeUsername(raw);
 
           if (!username) {
-            return new Response(
-              JSON.stringify({ available: false, reason: "Username is required" }),
-              { status: 200, headers: { "Content-Type": "application/json" } },
-            );
+            return json({ available: false, reason: "Username is required" });
           }
 
-          if (username.length < 3) {
-            return new Response(
-              JSON.stringify({
-                available: false,
-                reason: "Username must be at least 3 characters",
-              }),
-              { status: 200, headers: { "Content-Type": "application/json" } },
-            );
+          // 1. Comprehensive syntax & reserved names validation
+          const validation = validateUsername(username);
+          if (!validation.valid) {
+            return json({
+              available: false,
+              reason: validation.error || "Invalid username format",
+            });
           }
 
-          if (username.length > 39) {
-            return new Response(
-              JSON.stringify({
-                available: false,
-                reason: "Username must be at most 39 characters",
-              }),
-              { status: 200, headers: { "Content-Type": "application/json" } },
-            );
-          }
-
-          if (!/^[a-z0-9]([a-z0-9-]{1,37}[a-z0-9])?$/.test(username)) {
-            return new Response(
-              JSON.stringify({
-                available: false,
-                reason:
-                  "Username may only contain lowercase letters, numbers, and hyphens (cannot start or end with a hyphen)",
-              }),
-              { status: 200, headers: { "Content-Type": "application/json" } },
-            );
-          }
-
-          if (username.includes("--")) {
-            return new Response(
-              JSON.stringify({
-                available: false,
-                reason: "Username cannot contain consecutive hyphens",
-              }),
-              { status: 200, headers: { "Content-Type": "application/json" } },
-            );
-          }
-
-          if (isReservedUsername(username)) {
-            return new Response(
-              JSON.stringify({
-                available: false,
-                reason: `'${username}' is a reserved handle on GitBowl`,
-              }),
-              { status: 200, headers: { "Content-Type": "application/json" } },
-            );
-          }
-
-          // Query database profiles
+          // 2. Query database profiles using exact equality on normalized username
           let query = supabaseAdmin
             .from("profiles")
             .select("id, username")
-            .ilike("username", username);
+            .eq("username", username);
 
           if (excludeUserId) {
             query = query.neq("id", excludeUserId);
           }
 
-          const { data, error } = await query;
+          const { data: profileData, error: profileErr } = await query;
 
-          if (error) {
-            return new Response(JSON.stringify({ available: true }), {
-              status: 200,
-              headers: { "Content-Type": "application/json" },
+          if (profileErr) {
+            return json(
+              { available: false, reason: "Database error checking availability" },
+              { status: 500 },
+            );
+          }
+
+          if (profileData && profileData.length > 0) {
+            return json({
+              available: false,
+              reason: "This username is already taken",
             });
           }
 
-          if (data && data.length > 0) {
-            return new Response(
-              JSON.stringify({
-                available: false,
-                reason: "This username is already taken",
-              }),
-              { status: 200, headers: { "Content-Type": "application/json" } },
+          // 3. Check if handle is taken by an organization slug
+          const { data: orgData, error: orgErr } = await (supabaseAdmin.from("orgs" as any) as any)
+            .select("id, slug")
+            .eq("slug", username);
+
+          if (orgErr) {
+            return json(
+              { available: false, reason: "Database error checking organization names" },
+              { status: 500 },
             );
           }
-
-          // Check if handle is taken by an organization
-          const { data: orgData } = await supabaseAdmin
-            .from("orgs" as any)
-            .select("id, slug")
-            .ilike("slug", username);
 
           if (orgData && orgData.length > 0) {
-            return new Response(
-              JSON.stringify({
-                available: false,
-                reason: "This handle is already taken by an organization",
-              }),
-              { status: 200, headers: { "Content-Type": "application/json" } },
-            );
+            return json({
+              available: false,
+              reason: "This handle is already taken by an organization",
+            });
           }
 
-          return new Response(JSON.stringify({ available: true }), {
-            status: 200,
-            headers: { "Content-Type": "application/json" },
-          });
-        } catch {
-          return new Response(
-            JSON.stringify({ available: false, reason: "Server error checking username" }),
-            { status: 500, headers: { "Content-Type": "application/json" } },
-          );
+          return json({ available: true });
+        } catch (err: unknown) {
+          const msg = err instanceof Error ? err.message : "Server error checking username";
+          return error(msg, 500);
         }
       },
     },

@@ -9,13 +9,14 @@ console.log("=== GitBowl Phase 1 Acceptance Tests ===");
 
 // 1. Admin Email Whitelisting
 console.log("\n[Test 1] Testing Admin Identity Whitelist...");
+process.env.ADMIN_EMAILS = "admin@example.com";
 assert.equal(
-  isWhitelistedAdminEmail("ahmedzarir07@gmail.com"),
+  isWhitelistedAdminEmail("admin@example.com"),
   true,
-  "ahmedzarir07@gmail.com must be whitelisted as admin",
+  "admin@example.com must be whitelisted as admin when in ADMIN_EMAILS",
 );
 assert.equal(
-  isWhitelistedAdminEmail("AHMEDZARIR07@GMAIL.COM"),
+  isWhitelistedAdminEmail("ADMIN@EXAMPLE.COM"),
   true,
   "Admin email comparison must be case-insensitive",
 );
@@ -23,6 +24,12 @@ assert.equal(
   isWhitelistedAdminEmail("attacker@evil.com"),
   false,
   "Arbitrary emails must be rejected",
+);
+delete process.env.ADMIN_EMAILS;
+assert.equal(
+  isWhitelistedAdminEmail("admin@example.com"),
+  false,
+  "When ADMIN_EMAILS is unset, nobody is admin",
 );
 assert.equal(isWhitelistedAdminEmail(""), false, "Empty email must be rejected");
 assert.equal(isWhitelistedAdminEmail(null), false, "Null email must be rejected");

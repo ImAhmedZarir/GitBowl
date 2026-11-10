@@ -48,7 +48,6 @@ import { BowlLogo } from "@/components/BowlLogo";
 import { ThemeToggle } from "@/components/ThemeToggle";
 import { GlobalSearch } from "@/components/GlobalSearch";
 import { KeyboardShortcutsModal } from "@/components/KeyboardShortcutsModal";
-import { firebaseAuth, fbSignOut } from "@/lib/firebase";
 import { toast } from "sonner";
 
 export function Header() {
@@ -160,7 +159,6 @@ export function Header() {
   async function signOut() {
     await queryClient.cancelQueries();
     queryClient.clear();
-    await fbSignOut(firebaseAuth).catch(() => {});
     await supabase.auth.signOut();
     navigate({ to: "/auth", replace: true });
   }
@@ -544,10 +542,7 @@ export function Header() {
 
                     <DropdownMenuSeparator className="my-1.5" />
 
-                    {(profile?.role === "admin" ||
-                      user?.email?.toLowerCase() === "ahmedzarir07@gmail.com" ||
-                      user?.email?.toLowerCase().includes("ahmedzarir") ||
-                      profile?.username === "ahmedzarir") && (
+                    {profile?.role === "admin" && (
                       <DropdownMenuItem asChild>
                         <Link
                           to="/admin"

@@ -20,14 +20,17 @@ export function sanitizeUnicode(str: string | null | undefined): string {
   // 1. Remove raw NUL characters (\0 or \u0000 character)
   let clean = str.replace(/\0/g, "");
 
-  // 2. Remove unpaired UTF-16 surrogate code points
+  // 2. Remove escaped Unicode null sequences (\u0000, \U0000, \x00) that crash Postgres JSON/text
+  clean = clean.replace(/\\u0000|\\U0000|\\x00/gi, "");
+
+  // 3. Remove unpaired UTF-16 surrogate code points
   // High surrogate not followed by low surrogate OR low surrogate without high surrogate
   clean = clean.replace(
     /[\uD800-\uDBFF](?![\uDC00-\uDFFF])|(?<![\uD800-\uDBFF])[\uDC00-\uDFFF]/g,
     "",
   );
 
-  // 3. Normalize Unicode using NFC (Canonical Decomposition, followed by Canonical Composition)
+  // 4. Normalize Unicode using NFC (Canonical Decomposition, followed by Canonical Composition)
   try {
     clean = clean.normalize("NFC");
   } catch {
@@ -38,12 +41,12 @@ export function sanitizeUnicode(str: string | null | undefined): string {
 }
 
 /**
- * Checks if a string or buffer contains NUL byte (\0).
+ * Checks if a string or buffer contains NUL byte (\0) or escaped \u0000.
  */
 export function containsNullByte(input: string | Uint8Array | Buffer | null | undefined): boolean {
   if (!input) return false;
   if (typeof input === "string") {
-    return input.includes("\0") || /\0/.test(input);
+    return input.includes("\0") || /\0/.test(input) || /\\u0000|\\U0000|\\x00/i.test(input);
   }
   if (input instanceof Uint8Array || (typeof Buffer !== "undefined" && Buffer.isBuffer(input))) {
     for (let i = 0; i < input.length; i++) {

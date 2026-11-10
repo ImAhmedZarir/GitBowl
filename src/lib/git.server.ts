@@ -744,10 +744,29 @@ export async function receivePack(admin: Admin, repo: Repo, userId: string, requ
               const s = sanitizeFileRecord(f);
               return { ...s, repo_id: repo.id };
             });
-            const { error } = await admin
+            let { error } = await admin
               .from("repo_files")
               .upsert(batchRows, { onConflict: "repo_id,path" });
-            if (error) throw error;
+            if (error) {
+              const errText = (error.message || "").toLowerCase();
+              if (
+                errText.includes("unicode escape") ||
+                errText.includes("22p05") ||
+                errText.includes("invalid byte sequence")
+              ) {
+                const safeRows = batchRows.map((r) => ({
+                  ...r,
+                  is_binary: true,
+                  content: r.is_binary ? r.content : Buffer.from(r.content || "", "utf8").toString("base64"),
+                }));
+                const retry = await admin
+                  .from("repo_files")
+                  .upsert(safeRows, { onConflict: "repo_id,path" });
+                if (retry.error) throw retry.error;
+              } else {
+                throw error;
+              }
+            }
           }
 
           // Mirror committed files to central storage tier

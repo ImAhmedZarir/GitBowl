@@ -179,6 +179,7 @@ export type Database = {
           display_name: string | null;
           id: string;
           is_suspended?: boolean;
+          onboarding_completed: boolean;
           role?: string;
           username: string;
         };
@@ -188,6 +189,7 @@ export type Database = {
           display_name?: string | null;
           id: string;
           is_suspended?: boolean;
+          onboarding_completed?: boolean;
           role?: string;
           username: string;
         };
@@ -197,6 +199,7 @@ export type Database = {
           display_name?: string | null;
           id?: string;
           is_suspended?: boolean;
+          onboarding_completed?: boolean;
           role?: string;
           username?: string;
         };
@@ -251,6 +254,7 @@ export type Database = {
           id: string;
           is_private: boolean;
           name: string;
+          org_id: string | null;
           owner_id: string;
           stars_count: number;
           updated_at: string;
@@ -265,6 +269,7 @@ export type Database = {
           id?: string;
           is_private?: boolean;
           name: string;
+          org_id?: string | null;
           owner_id: string;
           stars_count?: number;
           updated_at?: string;
@@ -279,6 +284,7 @@ export type Database = {
           id?: string;
           is_private?: boolean;
           name?: string;
+          org_id?: string | null;
           owner_id?: string;
           stars_count?: number;
           updated_at?: string;

@@ -13,7 +13,7 @@ A high-performance Git provider built with TanStack Start, React 19, Tailwind CS
    - `GDRIVE_CLIENT_EMAIL`: Service account email address
    - `GDRIVE_PRIVATE_KEY`: Service account private key (with `\n` linebreaks preserved)
    - `GDRIVE_ROOT_FOLDER_ID`: Shared Drive or Root Folder ID
-   - `ADMIN_EMAILS`: Comma-separated list of whitelisted admin emails (e.g. `ahmedzarir07@gmail.com`)
+   - `ADMIN_EMAILS`: Comma-separated list of whitelisted admin emails (e.g. `admin@example.com`)
    - `GITHUB_WEBHOOK_SECRET`: Secret token used for GitHub webhook HMAC-SHA256 signature verification
 
 ## Development
